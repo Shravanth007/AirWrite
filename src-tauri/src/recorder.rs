@@ -1,5 +1,6 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use log::info;
+use parking_lot::Mutex;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::AudioRecorder;
@@ -20,6 +21,12 @@ pub struct Recorder {
     audio_recorder: Arc<Mutex<AudioRecorder>>,
 }
 
+impl Default for Recorder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Recorder {
     pub fn new() -> Self {
         Self {
@@ -29,16 +36,18 @@ impl Recorder {
     }
 
     pub fn get_state(&self) -> RecordingState {
-        self.state.lock().unwrap().clone()
+        self.state.lock().clone()
     }
 
     pub fn start_recording(&self, app: &AppHandle, mic_name: &str) -> Result<(), String> {
-        let mut state = self.state.lock().unwrap();
-        if *state != RecordingState::Ready {
-            return Err("Already recording or transcribing".to_string());
+        {
+            let mut state = self.state.lock();
+            if *state != RecordingState::Ready {
+                return Err("Already recording or transcribing".to_string());
+            }
+            self.audio_recorder.lock().start(mic_name)?;
+            *state = RecordingState::Recording;
         }
-        self.audio_recorder.lock().unwrap().start(mic_name)?;
-        *state = RecordingState::Recording;
         let _ = app.emit("recording-state", "recording");
         Ok(())
     }
@@ -47,56 +56,54 @@ impl Recorder {
         &self,
         app: &AppHandle,
         settings: &Settings,
-        app_dir: &PathBuf,
     ) -> Result<String, String> {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock();
             if *state != RecordingState::Recording {
                 return Err("Not currently recording".to_string());
             }
             *state = RecordingState::Transcribing;
-            let _ = app.emit("recording-state", "transcribing");
         }
+        let _ = app.emit("recording-state", "transcribing");
 
-        let result = self.do_transcribe(app, settings, app_dir).await;
+        let result = self.do_transcribe(settings).await;
 
-        // Always reset state — whether success or failure
-        {
-            let mut state = self.state.lock().unwrap();
-            *state = RecordingState::Ready;
-        }
+        // Always reset state, regardless of outcome.
+        *self.state.lock() = RecordingState::Ready;
 
         match &result {
-            Ok(_) => { let _ = app.emit("recording-state", "done"); }
-            Err(e) => { let _ = app.emit("recording-error", e); }
+            Ok(text) => {
+                info!("Transcription: {:?}", text);
+                let _ = app.emit("recording-state", "done");
+                let _ = app.emit("recording-transcription", text);
+            }
+            Err(e) => {
+                let _ = app.emit("recording-error", e);
+            }
         }
-
         result
     }
 
-    async fn do_transcribe(
-        &self,
-        _app: &AppHandle,
-        settings: &Settings,
-        app_dir: &PathBuf,
-    ) -> Result<String, String> {
-        let temp_path = app_dir.join("temp_recording.wav");
+    async fn do_transcribe(&self, settings: &Settings) -> Result<String, String> {
+        // NamedTempFile auto-deletes when dropped — survives panic and crash.
+        let temp = tempfile::Builder::new()
+            .prefix("airwrite-")
+            .suffix(".wav")
+            .tempfile()
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        let temp_path = temp.path().to_path_buf();
 
-        {
-            let mut recorder = self.audio_recorder.lock().unwrap();
-            recorder.stop_and_save(&temp_path)?;
-        }
+        self.audio_recorder.lock().stop_and_save(&temp_path)?;
 
         let api_key = settings.groq_api_key.trim().to_string();
         let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
-
-        let _ = std::fs::remove_file(&temp_path);
+        // `temp` drops here → file is removed.
+        drop(temp);
 
         let cleaned = cleanup_text(&raw_text);
         if !cleaned.is_empty() {
             paste_text(&cleaned)?;
         }
-
         Ok(cleaned)
     }
 }

@@ -5,25 +5,15 @@ pub fn cleanup_text(text: &str) -> String {
     }
 
     // Normalize multiple spaces to single space
-    let normalized: String = trimmed
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ");
+    let normalized: String = trimmed.split_whitespace().collect::<Vec<&str>>().join(" ");
 
-    // Capitalize first letter of each sentence
-    let mut result = String::new();
-    let mut capitalize_next = true;
-
-    for ch in normalized.chars() {
-        if capitalize_next && ch.is_alphabetic() {
-            result.extend(ch.to_uppercase());
-            capitalize_next = false;
-        } else {
-            result.push(ch);
-            if ch == '.' || ch == '!' || ch == '?' {
-                capitalize_next = true;
-            }
-        }
+    // Capitalize only the first character — Whisper already handles sentence casing.
+    // Per-sentence re-capitalization breaks abbreviations like "e.g." and "i.e.".
+    let mut result = String::with_capacity(normalized.len() + 1);
+    let mut chars = normalized.chars();
+    if let Some(first) = chars.next() {
+        result.extend(first.to_uppercase());
+        result.push_str(chars.as_str());
     }
 
     // Ensure ending punctuation
@@ -51,23 +41,13 @@ mod tests {
     }
 
     #[test]
-    fn test_capitalize_first_letter() {
-        assert_eq!(cleanup_text("hello world"), "Hello world.");
+    fn test_capitalize_first_letter_only() {
+        assert_eq!(cleanup_text("hello world. foo bar"), "Hello world. foo bar.");
     }
 
     #[test]
-    fn test_capitalize_after_period() {
-        assert_eq!(cleanup_text("hello. world"), "Hello. World.");
-    }
-
-    #[test]
-    fn test_capitalize_after_question_mark() {
-        assert_eq!(cleanup_text("hello? world"), "Hello? World.");
-    }
-
-    #[test]
-    fn test_capitalize_after_exclamation() {
-        assert_eq!(cleanup_text("hello! world"), "Hello! World.");
+    fn test_abbreviations_not_broken() {
+        assert_eq!(cleanup_text("use e.g. python"), "Use e.g. python.");
     }
 
     #[test]

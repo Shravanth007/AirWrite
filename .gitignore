@@ -1,4 +1,12 @@
 node_modules/
 dist/
 src-tauri/target/
+src-tauri/gen/schemas/
 .env
+.env.local
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
