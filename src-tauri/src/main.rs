@@ -11,7 +11,7 @@ use recorder::{Recorder, RecordingState};
 use settings::Settings;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 struct AppState {
