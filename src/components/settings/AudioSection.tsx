@@ -9,8 +9,8 @@ import {
 } from "lucide-react";
 import type { Settings, MicDevice, MicTestResult } from "./types";
 import {
+  Block,
   Button,
-  Card,
   Field,
   PageHero,
   Pill,
@@ -24,18 +24,20 @@ interface Props {
   refreshMics: () => Promise<void>;
 }
 
+// Functional colors only — these communicate signal health, so we keep them
+// even in a monochrome shell.
 function levelTone(peak: number) {
   if (peak < 0.001) return "text-red-400";
-  if (peak < 0.005) return "text-orange-400";
-  if (peak < 0.05) return "text-yellow-400";
-  return "text-emerald-400";
+  if (peak < 0.005) return "text-orange-300";
+  if (peak < 0.05) return "text-yellow-300";
+  return "text-emerald-300";
 }
 
 function barColor(peak: number) {
-  if (peak < 0.001) return "from-red-500 to-red-400";
-  if (peak < 0.005) return "from-orange-500 to-orange-400";
-  if (peak < 0.05) return "from-yellow-500 to-yellow-400";
-  return "from-emerald-500 to-emerald-400";
+  if (peak < 0.001) return "bg-red-500";
+  if (peak < 0.005) return "bg-orange-400";
+  if (peak < 0.05) return "bg-yellow-400";
+  return "bg-emerald-400";
 }
 
 function barWidth(peak: number) {
@@ -86,7 +88,7 @@ export function AudioSection({
   ];
 
   return (
-    <div className="space-y-7">
+    <div>
       <PageHero
         eyebrow="Input"
         title="Audio"
@@ -94,14 +96,14 @@ export function AudioSection({
         Icon={Mic2}
       />
 
-      <Card className="p-5">
+      <Block>
         <Field
           label="Microphone"
           hint="Plugged in a USB mic? Hit refresh to rescan devices."
           trailing={
             <button
               onClick={refreshMics}
-              className="text-[10.5px] text-zinc-500 hover:text-zinc-200 inline-flex items-center gap-1 transition-colors"
+              className="text-[10.5px] text-zinc-500 hover:text-white inline-flex items-center gap-1 transition-colors"
             >
               <RefreshCw className="w-3 h-3" />
               Refresh
@@ -117,18 +119,16 @@ export function AudioSection({
             options={options}
           />
         </Field>
-      </Card>
+      </Block>
 
-      <Card className="p-5">
+      <Block className="mt-8">
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-brand-500/10 border border-brand-500/30 flex items-center justify-center">
-              <Waves className="w-4 h-4 text-brand-400" />
+            <div className="w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center">
+              <Waves className="w-4 h-4 text-zinc-400" />
             </div>
             <div>
-              <p className="text-[13px] font-medium text-zinc-100">
-                Mic check
-              </p>
+              <p className="text-[13px] font-medium text-white">Mic check</p>
               <p className="text-[11px] text-zinc-500">
                 Records 1.5 seconds and reports the signal level.
               </p>
@@ -151,9 +151,7 @@ export function AudioSection({
           </div>
         </div>
 
-        {err && (
-          <p className="text-[11.5px] text-red-400 mt-2">{err}</p>
-        )}
+        {err && <p className="text-[11.5px] text-red-400 mt-2">{err}</p>}
 
         {result && (
           <div className="space-y-3 mt-2">
@@ -162,13 +160,12 @@ export function AudioSection({
                 {result.device}
               </span>
               <span className="shrink-0 font-mono">
-                {result.sample_rate} Hz · {result.channels}ch ·{" "}
-                {result.format}
+                {result.sample_rate} Hz · {result.channels}ch · {result.format}
               </span>
             </div>
-            <div className="h-2 bg-black rounded-full overflow-hidden border border-[var(--color-line)]">
+            <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.06]">
               <div
-                className={`h-full bg-gradient-to-r ${barColor(result.peak)} transition-[width] duration-300`}
+                className={`h-full ${barColor(result.peak)} transition-[width] duration-300`}
                 style={{ width: barWidth(result.peak) }}
               />
             </div>
@@ -200,7 +197,7 @@ export function AudioSection({
             <span>Run a test to confirm Windows isn't blocking the mic.</span>
           </div>
         )}
-      </Card>
+      </Block>
     </div>
   );
 }

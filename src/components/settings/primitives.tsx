@@ -12,28 +12,25 @@ export function PageHero({
   Icon?: typeof import("lucide-react").Mic2;
 }) {
   return (
-    <div className="relative mb-10">
-      <div className="absolute -top-12 -left-8 w-64 h-32 bg-brand-500/10 blur-3xl rounded-full pointer-events-none" />
-      <div className="relative">
-        {Icon && (
-          <div className="mb-4 inline-flex w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--color-surface-3)] to-[var(--color-surface-2)] border border-[var(--color-line)] items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-            <Icon className="w-4 h-4 text-brand-400" strokeWidth={2} />
-          </div>
-        )}
-        {eyebrow && (
-          <div className="text-[10.5px] font-medium uppercase tracking-[0.14em] text-brand-400 mb-1.5">
-            {eyebrow}
-          </div>
-        )}
-        <h1 className="text-[22px] font-semibold tracking-tight text-zinc-50 leading-tight">
-          {title}
-        </h1>
-        {description && (
-          <p className="text-[13px] text-zinc-500 mt-2 leading-relaxed max-w-[420px]">
-            {description}
-          </p>
-        )}
-      </div>
+    <div className="mb-8">
+      {(Icon || eyebrow) && (
+        <div className="flex items-center gap-1.5 mb-3 text-[11px] text-zinc-500">
+          {Icon && (
+            <Icon className="w-3.5 h-3.5 text-zinc-500" strokeWidth={2} />
+          )}
+          {eyebrow && (
+            <span className="font-medium tracking-tight">{eyebrow}</span>
+          )}
+        </div>
+      )}
+      <h1 className="text-[30px] font-semibold tracking-tight text-white leading-[1.1]">
+        {title}
+      </h1>
+      {description && (
+        <p className="text-[13.5px] text-zinc-500 mt-2.5 leading-relaxed max-w-[480px]">
+          {description}
+        </p>
+      )}
     </div>
   );
 }
@@ -50,9 +47,9 @@ export function Field({
   trailing?: ReactNode;
 }) {
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+        <label className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
           {label}
         </label>
         {trailing}
@@ -65,24 +62,23 @@ export function Field({
   );
 }
 
-export function Card({
+/**
+ * Section block — replaces the old Card. No nested rounded box; just a
+ * top hairline plus padding. Stack these in a section and you get a clean
+ * monochrome list of subsections separated by thin lines.
+ */
+export function Block({
   children,
   className = "",
-  glow = false,
 }: {
   children: ReactNode;
   className?: string;
-  glow?: boolean;
 }) {
   return (
     <div
-      className={`relative bg-gradient-to-b from-[var(--color-surface-2)] to-[var(--color-surface)] border border-[var(--color-line)] rounded-2xl shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] ${
-        glow
-          ? "before:absolute before:inset-0 before:rounded-2xl before:bg-gradient-to-br before:from-brand-500/[0.06] before:to-transparent before:pointer-events-none"
-          : ""
-      } ${className}`}
+      className={`border-t border-white/[0.06] pt-6 ${className}`}
     >
-      <div className="relative">{children}</div>
+      {children}
     </div>
   );
 }
@@ -91,19 +87,19 @@ export function Pill({
   tone = "neutral",
   children,
 }: {
-  tone?: "neutral" | "brand" | "warn" | "soon" | "ok";
+  tone?: "neutral" | "ok" | "warn" | "soon" | "danger";
   children: ReactNode;
 }) {
   const styles = {
-    neutral: "bg-zinc-900 text-zinc-400 border-zinc-800",
-    brand: "bg-brand-500/10 text-brand-300 border-brand-500/30",
-    warn: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-    soon: "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/30",
-    ok: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+    neutral: "bg-white/[0.04] text-zinc-400 border-white/[0.08]",
+    ok: "bg-white/[0.06] text-white border-white/15",
+    warn: "bg-white/[0.04] text-zinc-300 border-white/15",
+    soon: "bg-white/[0.04] text-zinc-500 border-white/[0.08]",
+    danger: "bg-red-500/10 text-red-300 border-red-500/30",
   } as const;
   return (
     <span
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9.5px] font-semibold uppercase tracking-[0.1em] ${styles[tone]}`}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[9.5px] font-semibold uppercase tracking-[0.12em] ${styles[tone]}`}
     >
       {children}
     </span>
@@ -130,20 +126,19 @@ export function Button({
   className = "",
 }: ButtonProps) {
   const base =
-    "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 active:scale-[0.97]";
+    "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40 active:scale-[0.97]";
   const sizes = {
     sm: "px-2.5 py-1.5 text-[11.5px]",
     md: "px-3.5 py-2 text-[12.5px]",
   };
   const variants = {
     primary:
-      "bg-gradient-to-b from-brand-400 to-brand-500 text-zinc-950 hover:brightness-110 shadow-[0_1px_0_rgba(255,255,255,0.25)_inset,0_8px_22px_-8px_rgba(34,211,238,0.55)]",
+      "bg-white text-black hover:bg-zinc-200 active:bg-zinc-300 shadow-[0_0_0_1px_rgba(255,255,255,0.1),0_8px_22px_-8px_rgba(255,255,255,0.25)]",
     secondary:
-      "bg-[var(--color-surface-3)] text-zinc-100 border border-[var(--color-line)] hover:border-[var(--color-line-strong)] hover:bg-[var(--color-surface-2)]",
-    ghost:
-      "text-zinc-400 hover:text-zinc-100 hover:bg-[var(--color-surface-2)]",
+      "bg-transparent text-zinc-200 border border-white/[0.08] hover:border-white/20 hover:bg-white/[0.03]",
+    ghost: "text-zinc-400 hover:text-white hover:bg-white/[0.04]",
     danger:
-      "bg-red-500/10 text-red-300 border border-red-500/30 hover:bg-red-500/20",
+      "bg-transparent text-red-300 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50",
   };
   return (
     <button
@@ -176,7 +171,7 @@ export function TextInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-black border border-[var(--color-line)] rounded-lg px-3.5 py-2.5 text-[13px] text-zinc-100 placeholder:text-zinc-700 focus:outline-none focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/15 transition-all"
+      className="w-full bg-transparent border border-white/[0.08] rounded-lg px-3.5 py-2.5 text-[13px] text-zinc-100 placeholder:text-zinc-700 focus:outline-none focus:border-white/30 transition-colors"
     />
   );
 }
@@ -191,20 +186,20 @@ export function Select<T extends string>({
   options: { value: T; label: string }[];
 }) {
   return (
-    <div className="relative group">
+    <div className="relative">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="w-full appearance-none bg-black border border-[var(--color-line)] rounded-lg px-3.5 py-2.5 pr-10 text-[13px] text-zinc-100 focus:outline-none focus:border-brand-500/60 focus:ring-2 focus:ring-brand-500/15 transition-all cursor-pointer hover:border-[var(--color-line-strong)]"
+        className="w-full appearance-none bg-transparent border border-white/[0.08] rounded-lg px-3.5 py-2.5 pr-10 text-[13px] text-zinc-100 focus:outline-none focus:border-white/30 transition-colors cursor-pointer hover:border-white/15"
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={o.value} value={o.value} className="bg-black">
             {o.label}
           </option>
         ))}
       </select>
       <svg
-        className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500 group-hover:text-zinc-300 transition-colors"
+        className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500"
         viewBox="0 0 12 12"
         fill="none"
         stroke="currentColor"
@@ -216,8 +211,4 @@ export function Select<T extends string>({
       </svg>
     </div>
   );
-}
-
-export function Divider() {
-  return <div className="h-px bg-[var(--color-line)] my-6" />;
 }

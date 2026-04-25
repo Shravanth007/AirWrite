@@ -16,8 +16,10 @@
         "label": "settings",
         "title": "AirWrite Settings",
         "url": "/settings",
-        "width": 520,
-        "height": 680,
+        "width": 880,
+        "height": 720,
+        "minWidth": 760,
+        "minHeight": 600,
         "resizable": true,
         "visible": false,
         "center": true

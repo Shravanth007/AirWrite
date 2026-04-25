@@ -15,11 +15,31 @@ function normalize(s: Settings): Settings {
   return { ...s, groqApiKey: s.groqApiKey.trim() };
 }
 
+const SEARCH_INDEX: Record<SectionId, string[]> = {
+  "api-key": ["api", "key", "groq", "credential", "token", "secret"],
+  audio: ["audio", "mic", "microphone", "input", "device", "level"],
+  hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination"],
+  recording: ["recording", "mode", "toggle", "push to talk", "ptt", "behavior"],
+  about: ["about", "info", "version", "credits", "model", "whisper"],
+};
+
+function matchSearch(query: string): SectionId | null {
+  const q = query.trim().toLowerCase();
+  if (!q) return null;
+  for (const id of Object.keys(SEARCH_INDEX) as SectionId[]) {
+    if (SEARCH_INDEX[id].some((kw) => kw.startsWith(q) || kw.includes(q))) {
+      return id;
+    }
+  }
+  return null;
+}
+
 export function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [snapshot, setSnapshot] = useState<Settings | null>(null);
   const [mics, setMics] = useState<MicDevice[]>([]);
   const [section, setSection] = useState<SectionId>("api-key");
+  const [query, setQuery] = useState("");
   const [loadError, setLoadError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -36,7 +56,6 @@ export function SettingsPanel() {
         setSettings(s);
         setSnapshot(s);
         setMics(m);
-        // Land on the first thing that needs attention.
         if (s.groqApiKey.trim().length > 0) setSection("audio");
       })
       .catch((e) => {
@@ -47,6 +66,12 @@ export function SettingsPanel() {
       cancelled = true;
     };
   }, []);
+
+  // "/" focuses search and live-jumps to a matching section.
+  useEffect(() => {
+    const id = matchSearch(query);
+    if (id) setSection(id);
+  }, [query]);
 
   async function refreshMics() {
     try {
@@ -102,19 +127,22 @@ export function SettingsPanel() {
     );
   }
 
-  const apiKeyOk = settings.groqApiKey.trim().length > 0;
-
   return (
-    <div className="h-screen w-screen flex bg-[var(--color-surface)] text-zinc-200 overflow-hidden">
+    <div className="h-screen w-screen flex bg-black text-zinc-200 overflow-hidden">
       <Sidebar
         current={section}
-        onSelect={setSection}
-        apiKeyOk={apiKeyOk}
+        onSelect={(id) => {
+          setSection(id);
+          setQuery("");
+        }}
+        settings={settings}
+        query={query}
+        setQuery={setQuery}
       />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 bg-black overflow-hidden">
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-[480px] mx-auto px-10 pt-12 pb-8">
+          <div className="max-w-[640px] mx-auto px-12 pt-14 pb-10">
             {section === "api-key" && (
               <ApiKeySection settings={settings} setSettings={setSettings} />
             )}
@@ -136,7 +164,7 @@ export function SettingsPanel() {
               />
             )}
             {section === "about" && <AboutSection />}
-            <div className="h-12" />
+            <div className="h-16" />
           </div>
         </div>
 
@@ -166,7 +194,7 @@ function SaveBar({
   onSave: () => void;
 }) {
   return (
-    <div className="border-t border-[var(--color-line)] bg-black/60 backdrop-blur-md px-6 py-3 flex items-center justify-between gap-3">
+    <div className="border-t border-white/[0.06] bg-black/80 backdrop-blur-md px-8 py-3.5 flex items-center justify-between gap-3">
       <div className="text-[11.5px] min-w-0 flex-1">
         {error ? (
           <span className="text-red-400 truncate block" title={error}>

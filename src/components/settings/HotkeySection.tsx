@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Keyboard } from "lucide-react";
 import type { Settings } from "./types";
-import { Card, Field, PageHero } from "./primitives";
+import { Block, Field, PageHero } from "./primitives";
 
 const MODIFIER_KEYS = new Set([
   "Control",
@@ -36,7 +36,7 @@ function Chips({ combo }: { combo: string }) {
     <div className="flex items-center gap-1.5">
       {combo.split("+").map((k, i, arr) => (
         <span key={i} className="inline-flex items-center">
-          <kbd className="inline-flex items-center justify-center min-w-[28px] h-[28px] px-2 rounded-md bg-gradient-to-b from-[var(--color-surface-3)] to-[var(--color-surface-2)] border border-[var(--color-line-strong)] text-[11px] font-mono text-zinc-100 shadow-[0_1px_0_rgba(255,255,255,0.05)_inset,0_1px_2px_rgba(0,0,0,0.6)]">
+          <kbd className="inline-flex items-center justify-center min-w-[28px] h-[28px] px-2 rounded-md bg-white/[0.04] border border-white/[0.1] text-[11px] font-mono text-white">
             {k}
           </kbd>
           {i < arr.length - 1 && (
@@ -78,15 +78,15 @@ export function HotkeySection({ settings, setSettings }: Props) {
   }, [capturing, settings, setSettings]);
 
   return (
-    <div className="space-y-7">
+    <div>
       <PageHero
         eyebrow="Trigger"
         title="Hotkey"
-        description="The system-wide key combination that starts and stops dictation. Hit save to apply changes live — no restart needed."
+        description="The system-wide key combination that starts and stops dictation. Hit save to apply changes — no restart needed."
         Icon={Keyboard}
       />
 
-      <Card className="p-6">
+      <Block>
         <Field label="Combination">
           <div
             ref={captureRef}
@@ -96,31 +96,31 @@ export function HotkeySection({ settings, setSettings }: Props) {
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") setCapturing(true);
             }}
-            className={`flex items-center justify-between rounded-xl px-4 py-4 cursor-pointer transition-all focus:outline-none border-2 ${
+            className={`flex items-center justify-between rounded-xl px-4 py-4 cursor-pointer transition-all focus:outline-none border ${
               capturing
-                ? "bg-brand-500/[0.06] border-brand-500/60 shadow-[0_0_0_4px_rgba(34,211,238,0.08)]"
-                : "bg-black border-[var(--color-line)] hover:border-[var(--color-line-strong)]"
+                ? "bg-white/[0.04] border-white/30 shadow-[0_0_24px_-6px_rgba(255,255,255,0.18)]"
+                : "bg-transparent border-white/[0.08] hover:border-white/20"
             }`}
           >
             {capturing ? (
               <div className="flex items-center gap-2.5">
                 <span className="relative flex w-2 h-2">
-                  <span className="absolute inset-0 rounded-full bg-brand-400/60 animate-ping" />
-                  <span className="relative w-2 h-2 rounded-full bg-brand-400" />
+                  <span className="absolute inset-0 rounded-full bg-white/40 animate-ping" />
+                  <span className="relative w-2 h-2 rounded-full bg-white" />
                 </span>
-                <span className="text-[12.5px] text-brand-300">
+                <span className="text-[12.5px] text-zinc-200">
                   Press your combination… Esc to cancel
                 </span>
               </div>
             ) : (
               <Chips combo={settings.hotkey} />
             )}
-            <span className="text-[10.5px] uppercase tracking-[0.12em] text-zinc-600">
+            <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-600">
               Click to {capturing ? "cancel" : "rebind"}
             </span>
           </div>
         </Field>
-      </Card>
+      </Block>
     </div>
   );
 }
