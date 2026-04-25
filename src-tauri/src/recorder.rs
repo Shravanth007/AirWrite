@@ -58,6 +58,28 @@ impl Recorder {
             let _ = app.emit("recording-state", "transcribing");
         }
 
+        let result = self.do_transcribe(app, settings, app_dir).await;
+
+        // Always reset state — whether success or failure
+        {
+            let mut state = self.state.lock().unwrap();
+            *state = RecordingState::Ready;
+        }
+
+        match &result {
+            Ok(_) => { let _ = app.emit("recording-state", "done"); }
+            Err(e) => { let _ = app.emit("recording-error", e); }
+        }
+
+        result
+    }
+
+    async fn do_transcribe(
+        &self,
+        _app: &AppHandle,
+        settings: &Settings,
+        app_dir: &PathBuf,
+    ) -> Result<String, String> {
         let temp_path = app_dir.join("temp_recording.wav");
 
         {
@@ -65,20 +87,14 @@ impl Recorder {
             recorder.stop_and_save(&temp_path)?;
         }
 
-        let raw_text =
-            transcribe_groq::transcribe_groq(&settings.groq_api_key, &temp_path).await?;
+        let api_key = settings.groq_api_key.trim().to_string();
+        let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
 
         let _ = std::fs::remove_file(&temp_path);
 
         let cleaned = cleanup_text(&raw_text);
         if !cleaned.is_empty() {
             paste_text(&cleaned)?;
-        }
-
-        {
-            let mut state = self.state.lock().unwrap();
-            *state = RecordingState::Ready;
-            let _ = app.emit("recording-state", "done");
         }
 
         Ok(cleaned)

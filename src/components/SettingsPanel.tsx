@@ -26,8 +26,10 @@ export function SettingsPanel() {
 
   async function save() {
     if (!settings) return;
+    const trimmed = { ...settings, groqApiKey: settings.groqApiKey.trim() };
+    setSettings(trimmed);
     try {
-      await invoke("save_settings", { settings });
+      await invoke("save_settings", { settings: trimmed });
       setSaved(true);
       setError("");
       setTimeout(() => setSaved(false), 2000);
