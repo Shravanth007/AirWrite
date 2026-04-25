@@ -157,9 +157,10 @@ fn overlay_position(app: &AppHandle) -> (f64, f64) {
     if let Ok(Some(m)) = app.primary_monitor() {
         let scale = m.scale_factor();
         let logical_w = m.size().width as f64 / scale;
-        ((logical_w - 320.0).max(0.0), 20.0)
+        // Center the compact pill horizontally near the top, like a notch.
+        ((logical_w / 2.0) - 160.0, 18.0)
     } else {
-        (1580.0, 20.0)
+        (760.0, 18.0)
     }
 }
 
@@ -167,7 +168,7 @@ fn build_overlay_window(app: &AppHandle) -> tauri::Result<()> {
     let (x, y) = overlay_position(app);
     let w = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("/".into()))
         .title("")
-        .inner_size(300.0, 52.0)
+        .inner_size(320.0, 52.0)
         .position(x, y)
         .resizable(false)
         .decorations(false)
