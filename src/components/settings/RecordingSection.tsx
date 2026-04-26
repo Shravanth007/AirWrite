@@ -29,8 +29,7 @@ const MODES: ModeOption[] = [
     title: "Push to talk",
     desc: "Hold the hotkey while speaking, release to transcribe. Best for quick bursts.",
     Icon: Hand,
-    enabled: false,
-    badge: "Soon",
+    enabled: true,
   },
 ];
 
@@ -40,7 +39,7 @@ export function RecordingSection({ settings, setSettings }: Props) {
       <PageHero
         eyebrow="Behavior"
         title="Recording mode"
-        description="How the hotkey controls capture. Push-to-talk is wired into the data model and will land in the next release."
+        description="How the hotkey controls capture. Pick whatever feels natural — you can switch any time."
         Icon={Sparkles}
       />
 
