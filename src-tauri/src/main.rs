@@ -384,16 +384,25 @@ fn main() {
                 error!("Failed to register hotkey '{}': {}", initial_hotkey, e);
                 let _ = handle.emit(
                     "recording-error",
-                    format!("Could not bind hotkey '{}': {}", initial_hotkey, e),
+                    format!(
+                        "Recording hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                        initial_hotkey
+                    ),
                 );
             }
 
             info!("Registering settings hotkey: {}", initial_settings_hotkey);
             if let Err(e) = register_settings_hotkey(&handle, &initial_settings_hotkey) {
-                // Non-fatal: user can still open Settings from the tray.
                 warn!(
                     "Failed to register settings hotkey '{}': {}",
                     initial_settings_hotkey, e
+                );
+                let _ = handle.emit(
+                    "recording-error",
+                    format!(
+                        "Settings hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                        initial_settings_hotkey
+                    ),
                 );
             }
             Ok(())

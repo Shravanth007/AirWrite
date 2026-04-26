@@ -35,25 +35,19 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String,
         .multipart(form)
         .send()
         .await
-        .map_err(|e| format!("Groq API request failed: {}", e))?;
+        .map_err(classify_request_error)?;
 
     let status = response.status();
     if !status.is_success() {
-        // Don't echo the full body — it may include the request that contained
-        // the bearer token in some proxy error pages. Surface a concise message.
-        let snippet = response
+        // Don't echo the raw body — it may contain the request payload (and
+        // therefore the bearer token) in some proxy error pages.
+        let groq_message = response
             .text()
             .await
             .ok()
             .and_then(|b| serde_json::from_str::<serde_json::Value>(&b).ok())
-            .and_then(|v| v["error"]["message"].as_str().map(str::to_string))
-            .unwrap_or_else(|| match status.as_u16() {
-                401 => "invalid API key".to_string(),
-                429 => "rate limited".to_string(),
-                503 => "Groq service unavailable".to_string(),
-                _ => "unexpected error".to_string(),
-            });
-        return Err(format!("Groq API error ({}): {}", status, snippet));
+            .and_then(|v| v["error"]["message"].as_str().map(str::to_string));
+        return Err(classify_status_error(status.as_u16(), groq_message));
     }
 
     let json: serde_json::Value = response
@@ -65,6 +59,51 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String,
         .as_str()
         .map(|s| s.to_string())
         .ok_or_else(|| "No 'text' field in Groq response".to_string())
+}
+
+/// Convert a reqwest transport error into something a user can act on.
+/// The raw `reqwest::Error` Display is a wall of nested causes — useful in
+/// the log but not on screen.
+fn classify_request_error(e: reqwest::Error) -> String {
+    let raw = e.to_string();
+    log::warn!("Network error during transcribe: {}", raw);
+
+    if e.is_timeout() {
+        return "Request timed out. Groq might be slow right now — try again.".to_string();
+    }
+    if e.is_connect() {
+        // DNS failure usually means no internet at all; bare connect failure
+        // means the route is broken (firewall, captive portal, etc.).
+        if raw.contains("dns") || raw.contains("lookup") || raw.contains("resolve") {
+            return "Can't reach api.groq.com. You may be offline or behind a firewall.".to_string();
+        }
+        return "Can't connect to Groq. Check your internet connection.".to_string();
+    }
+    if e.is_request() {
+        return "The request couldn't be built. Try restarting AirWrite.".to_string();
+    }
+    "Network error while contacting Groq. Try again in a moment.".to_string()
+}
+
+/// Map an HTTP status into an actionable message. We prefer Groq's own error
+/// message when it's present and short enough; otherwise fall back to a
+/// hand-written line per status class.
+fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
+    match status {
+        401 | 403 => "Your Groq API key was rejected. Open Settings → API key to update it.".to_string(),
+        408 => "Groq took too long to respond. Try again.".to_string(),
+        413 => "Recording is too long for Groq. Keep dictations under ~25 MB of audio.".to_string(),
+        429 => "Too many requests. Wait a few seconds and try again.".to_string(),
+        500..=599 => "Groq is having issues right now. Try again in a moment.".to_string(),
+        _ => {
+            // Unexpected status — surface Groq's own message if present.
+            if let Some(m) = groq_message.filter(|m| !m.is_empty() && m.len() < 200) {
+                format!("Groq returned {}: {}", status, m)
+            } else {
+                format!("Unexpected response from Groq ({}). Try again.", status)
+            }
+        }
+    }
 }
 
 /// Reject keys that contain characters which would either break the
