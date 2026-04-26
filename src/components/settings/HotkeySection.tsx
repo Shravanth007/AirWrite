@@ -12,6 +12,34 @@ const MODIFIER_KEYS = new Set([
   "OS",
 ]);
 
+// Map a `KeyboardEvent.code` to the keycode token Tauri's global-shortcut
+// parser accepts. Tauri uses keyboard-types `Code` names (Comma, Period,
+// Slash, ...) rather than printable characters, so capturing `e.key` directly
+// produces strings like `,` that fail to register at runtime.
+function codeToTauri(code: string, key: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3); // KeyA -> A
+  if (/^Digit\d$/.test(code)) return code.slice(5); // Digit5 -> 5
+  if (/^F\d{1,2}$/.test(code)) return code; // F1..F12
+  if (code === "Space") return "Space";
+  if (code === "Enter") return "Enter";
+  if (code === "Tab") return "Tab";
+  if (code === "Backspace") return "Backspace";
+  if (code.startsWith("Arrow")) return code.replace("Arrow", "");
+  // Numpad and punctuation come through as their Code name verbatim
+  // (Comma, Period, Slash, Semicolon, Quote, Backquote, Minus, Equal,
+  //  BracketLeft, BracketRight, Backslash, Numpad0..9).
+  if (
+    /^(Comma|Period|Slash|Semicolon|Quote|Backquote|Minus|Equal|BracketLeft|BracketRight|Backslash|IntlBackslash|Numpad\d|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal|NumpadEnter|PageUp|PageDown|Home|End|Insert|Delete)$/.test(
+      code,
+    )
+  ) {
+    return code;
+  }
+  // Fallback: if `key` is a single printable letter, accept it.
+  if (key.length === 1 && /[A-Za-z]/.test(key)) return key.toUpperCase();
+  return null;
+}
+
 function formatAccelerator(e: KeyboardEvent): string | null {
   const parts: string[] = [];
   if (e.ctrlKey || e.metaKey) parts.push("CmdOrCtrl");
@@ -19,18 +47,34 @@ function formatAccelerator(e: KeyboardEvent): string | null {
   if (e.shiftKey) parts.push("Shift");
   if (MODIFIER_KEYS.has(e.key)) return null;
 
-  let key: string;
-  if (e.key === " " || e.code === "Space") key = "Space";
-  else if (e.key === ",") key = ",";
-  else if (e.key.length === 1) key = e.key.toUpperCase();
-  else if (/^F\d{1,2}$/.test(e.key)) key = e.key;
-  else if (e.key.startsWith("Arrow")) key = e.key.replace("Arrow", "");
-  else key = e.key;
-
+  const key = codeToTauri(e.code, e.key);
+  if (!key) return null;
   if (parts.length === 0) return null;
   parts.push(key);
   return parts.join("+");
 }
+
+// Prettify Tauri code names for display in the chips (storage stays raw).
+const KEY_DISPLAY: Record<string, string> = {
+  CmdOrCtrl: "Ctrl",
+  Cmd: "Ctrl",
+  Comma: ",",
+  Period: ".",
+  Slash: "/",
+  Semicolon: ";",
+  Quote: "'",
+  Backquote: "`",
+  Minus: "-",
+  Equal: "=",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Backslash: "\\",
+  Up: "↑",
+  Down: "↓",
+  Left: "←",
+  Right: "→",
+};
+const displayKey = (k: string) => KEY_DISPLAY[k] ?? k;
 
 function Chips({ combo }: { combo: string }) {
   return (
@@ -38,7 +82,7 @@ function Chips({ combo }: { combo: string }) {
       {combo.split("+").map((k, i, arr) => (
         <span key={i} className="inline-flex items-center">
           <kbd className="inline-flex items-center justify-center min-w-[28px] h-[28px] px-2 rounded-md bg-white/[0.04] border border-white/[0.1] text-[11px] font-mono text-white">
-            {k}
+            {displayKey(k)}
           </kbd>
           {i < arr.length - 1 && (
             <span className="mx-1 text-zinc-600 text-[11px]">+</span>

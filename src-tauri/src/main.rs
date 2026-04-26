@@ -107,6 +107,7 @@ fn open_mic_privacy_settings() -> Result<(), String> {
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -338,6 +339,20 @@ fn main() {
             match build_overlay_window(&handle) {
                 Ok(_) => info!("Overlay window created"),
                 Err(e) => error!("Failed to create overlay: {}", e),
+            }
+
+            // Intercept the Settings window's close button: hide instead of
+            // destroy, so the next "Open settings" can find and re-show it.
+            if let Some(settings_win) = handle.get_webview_window("settings") {
+                let win = settings_win.clone();
+                settings_win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win.hide();
+                    }
+                });
+            } else {
+                warn!("Settings window not found at setup time — close-to-hide not wired");
             }
 
             if api_key_missing {

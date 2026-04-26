@@ -28,7 +28,7 @@ impl Default for Settings {
             groq_api_key: String::new(),
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
-            settings_hotkey: "CmdOrCtrl+Shift+,".to_string(),
+            settings_hotkey: "CmdOrCtrl+Alt+S".to_string(),
         }
     }
 }
