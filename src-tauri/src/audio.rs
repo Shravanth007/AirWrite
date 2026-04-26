@@ -158,7 +158,10 @@ impl AudioRecorder {
         Ok(())
     }
 
-    pub fn stop_and_save(&mut self, output_path: &Path) -> Result<(), String> {
+    /// Stop the active stream, write the captured audio to `output_path`,
+    /// and return the duration of the recording in seconds (so callers can
+    /// reason about real-time-factor against the transcription latency).
+    pub fn stop_and_save(&mut self, output_path: &Path) -> Result<f32, String> {
         // Drop stops the stream — must happen on the same thread as `start`.
         self.stream = None;
         debug!("Audio recording stopped");
@@ -223,7 +226,7 @@ impl AudioRecorder {
         samples.clear();
 
         debug!("WAV saved to {}", output_path.display());
-        Ok(())
+        Ok(duration_secs)
     }
 }
 

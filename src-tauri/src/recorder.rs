@@ -1,6 +1,7 @@
 use log::info;
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::audio::AudioRecorder;
@@ -93,17 +94,40 @@ impl Recorder {
             .map_err(|e| format!("Failed to create temp file: {}", e))?;
         let temp_path = temp.path().to_path_buf();
 
-        self.audio_recorder.lock().stop_and_save(&temp_path)?;
+        let pipeline_started = Instant::now();
+        let audio_secs = self.audio_recorder.lock().stop_and_save(&temp_path)?;
+        let upload_size = std::fs::metadata(&temp_path).map(|m| m.len()).unwrap_or(0);
 
         let api_key = settings.groq_api_key.trim().to_string();
+        let api_started = Instant::now();
         let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
+        let api_secs = api_started.elapsed().as_secs_f32();
         // `temp` drops here → file is removed.
         drop(temp);
 
         let cleaned = cleanup_text(&raw_text);
+        let paste_started = Instant::now();
         if !cleaned.is_empty() {
             paste_text(&cleaned)?;
         }
+        let paste_secs = paste_started.elapsed().as_secs_f32();
+        let total_secs = pipeline_started.elapsed().as_secs_f32();
+
+        // Real-time factor: how long Groq took relative to the audio duration.
+        // <1.0 means "faster than real-time" (typical for whisper-large-v3-turbo
+        // on Groq, often 0.05–0.20). >1.0 means the network or the model is
+        // bottlenecking.
+        let rtf = if audio_secs > 0.0 { api_secs / audio_secs } else { 0.0 };
+        info!(
+            "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+            api_secs,
+            rtf,
+            audio_secs,
+            upload_size as f32 / 1024.0,
+            paste_secs,
+            total_secs,
+        );
+
         Ok(cleaned)
     }
 }
