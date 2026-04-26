@@ -34,23 +34,44 @@ fn save_settings(
     state: State<AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    let old_hotkey = state.settings.lock().hotkey.clone();
-    let new_hotkey = settings.hotkey.clone();
+    let old = state.settings.lock().clone();
 
     settings.save(&state.app_dir)?;
-    *state.settings.lock() = settings;
+    *state.settings.lock() = settings.clone();
 
-    if old_hotkey != new_hotkey {
-        if let Err(e) = rebind_hotkey(&app, &old_hotkey, &new_hotkey) {
-            // Roll back to the old hotkey in memory + on disk so we don't
-            // strand the user with no working shortcut.
-            warn!("Hotkey rebind failed ({}). Reverting.", e);
+    // Recording hotkey
+    if old.hotkey != settings.hotkey {
+        if let Err(e) = rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey) {
+            warn!("Recording hotkey rebind failed ({}). Reverting.", e);
             let mut s = state.settings.lock();
-            s.hotkey = old_hotkey.clone();
+            s.hotkey = old.hotkey.clone();
             let _ = s.save(&state.app_dir);
-            return Err(format!("Could not bind '{}': {}. Reverted.", new_hotkey, e));
+            return Err(format!(
+                "Could not bind recording hotkey '{}': {}. Reverted.",
+                settings.hotkey, e
+            ));
         }
-        info!("Hotkey rebound: {} → {}", old_hotkey, new_hotkey);
+        info!("Recording hotkey rebound: {} → {}", old.hotkey, settings.hotkey);
+    }
+
+    // Settings (open-panel) hotkey
+    if old.settings_hotkey != settings.settings_hotkey {
+        if let Err(e) =
+            rebind_settings_hotkey(&app, &old.settings_hotkey, &settings.settings_hotkey)
+        {
+            warn!("Settings hotkey rebind failed ({}). Reverting.", e);
+            let mut s = state.settings.lock();
+            s.settings_hotkey = old.settings_hotkey.clone();
+            let _ = s.save(&state.app_dir);
+            return Err(format!(
+                "Could not bind settings hotkey '{}': {}. Reverted.",
+                settings.settings_hotkey, e
+            ));
+        }
+        info!(
+            "Settings hotkey rebound: {} → {}",
+            old.settings_hotkey, settings.settings_hotkey
+        );
     }
     Ok(())
 }
@@ -86,6 +107,7 @@ fn open_mic_privacy_settings() -> Result<(), String> {
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -179,7 +201,7 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
         .map_err(|e| e.to_string())
 }
 
-fn rebind_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
+fn rebind_recording_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
     let shortcut = handle.global_shortcut();
     if !old.is_empty() {
         if let Err(e) = shortcut.unregister(old) {
@@ -187,6 +209,52 @@ fn rebind_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String>
         }
     }
     register_recording_hotkey(handle, new)
+}
+
+fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
+    if accelerator.is_empty() {
+        return Ok(());
+    }
+    let captured = handle.clone();
+    handle
+        .global_shortcut()
+        .on_shortcut(accelerator, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            toggle_settings_window(&captured);
+        })
+        .map_err(|e| e.to_string())
+}
+
+/// Hotkey-driven toggle: hidden → show & focus, visible-but-unfocused →
+/// focus, visible & focused → hide. The tray menu's "Settings" entry
+/// deliberately uses `open_settings` (always-show) instead — clicking a menu
+/// item is unambiguous intent to see the window.
+fn toggle_settings_window(handle: &AppHandle) {
+    let Some(w) = handle.get_webview_window("settings") else {
+        warn!("toggle_settings_window: settings window not found");
+        return;
+    };
+    let visible = w.is_visible().unwrap_or(false);
+    let focused = w.is_focused().unwrap_or(false);
+    if visible && focused {
+        let _ = w.hide();
+    } else {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
+    let shortcut = handle.global_shortcut();
+    if !old.is_empty() {
+        if let Err(e) = shortcut.unregister(old) {
+            warn!("Failed to unregister settings hotkey '{}': {}", old, e);
+        }
+    }
+    register_settings_hotkey(handle, new)
 }
 
 fn overlay_position(app: &AppHandle) -> (f64, f64) {
@@ -261,6 +329,7 @@ fn main() {
     }
     let settings = Settings::load(&dir);
     let initial_hotkey = settings.hotkey.clone();
+    let initial_settings_hotkey = settings.settings_hotkey.clone();
     let api_key_missing = settings.groq_api_key.trim().is_empty();
     let tray_tooltip = format!("AirWrite — {} to dictate", initial_hotkey);
 
@@ -292,16 +361,39 @@ fn main() {
                 Err(e) => error!("Failed to create overlay: {}", e),
             }
 
+            // Intercept the Settings window's close button: hide instead of
+            // destroy, so the next "Open settings" can find and re-show it.
+            if let Some(settings_win) = handle.get_webview_window("settings") {
+                let win = settings_win.clone();
+                settings_win.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = win.hide();
+                    }
+                });
+            } else {
+                warn!("Settings window not found at setup time — close-to-hide not wired");
+            }
+
             if api_key_missing {
                 open_settings(handle.clone());
             }
 
-            info!("Registering hotkey: {}", initial_hotkey);
+            info!("Registering recording hotkey: {}", initial_hotkey);
             if let Err(e) = register_recording_hotkey(&handle, &initial_hotkey) {
                 error!("Failed to register hotkey '{}': {}", initial_hotkey, e);
                 let _ = handle.emit(
                     "recording-error",
                     format!("Could not bind hotkey '{}': {}", initial_hotkey, e),
+                );
+            }
+
+            info!("Registering settings hotkey: {}", initial_settings_hotkey);
+            if let Err(e) = register_settings_hotkey(&handle, &initial_settings_hotkey) {
+                // Non-fatal: user can still open Settings from the tray.
+                warn!(
+                    "Failed to register settings hotkey '{}': {}",
+                    initial_settings_hotkey, e
                 );
             }
             Ok(())

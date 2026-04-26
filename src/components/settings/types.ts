@@ -5,6 +5,7 @@ export interface Settings {
   groqApiKey: string;
   recordingMode: RecordingMode | string;
   hotkey: string;
+  settingsHotkey: string;
 }
 
 export interface MicDevice {
