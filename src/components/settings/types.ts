@@ -6,6 +6,8 @@ export interface Settings {
   recordingMode: RecordingMode | string;
   hotkey: string;
   settingsHotkey: string;
+  duckingEnabled: boolean;
+  duckingLevel: number;
 }
 
 export interface MicDevice {

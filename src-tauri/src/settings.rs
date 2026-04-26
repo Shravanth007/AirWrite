@@ -19,6 +19,13 @@ pub struct Settings {
     /// Global hotkey that shows/focuses the Settings window.
     #[serde(rename = "settingsHotkey")]
     pub settings_hotkey: String,
+    /// Whether to lower the Windows master output volume while recording.
+    #[serde(rename = "duckingEnabled")]
+    pub ducking_enabled: bool,
+    /// Target level (0–100) the master volume is *reduced to* while
+    /// recording. Lower = quieter background. 0 mutes other audio entirely.
+    #[serde(rename = "duckingLevel")]
+    pub ducking_level: u8,
 }
 
 impl Default for Settings {
@@ -29,6 +36,8 @@ impl Default for Settings {
             recording_mode: "toggle".to_string(),
             hotkey: "CmdOrCtrl+Shift+Space".to_string(),
             settings_hotkey: "CmdOrCtrl+Alt+S".to_string(),
+            ducking_enabled: true,
+            ducking_level: 15,
         }
     }
 }

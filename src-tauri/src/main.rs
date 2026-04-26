@@ -163,8 +163,8 @@ async fn handle_hotkey_event(
         // Press = start, release = stop & transcribe.
         "push_to_talk" => match (pressed, state.recorder.get_state()) {
             (true, RecordingState::Ready) => {
-                let mic = state.settings.lock().microphone.clone();
-                state.recorder.start_recording(app, &mic)?;
+                let settings = state.settings.lock().clone();
+                state.recorder.start_recording(app, &settings)?;
                 Ok("ptt: started")
             }
             (false, RecordingState::Recording) => {
@@ -187,8 +187,8 @@ async fn handle_hotkey_event(
             }
             match state.recorder.get_state() {
                 RecordingState::Ready => {
-                    let mic = state.settings.lock().microphone.clone();
-                    state.recorder.start_recording(app, &mic)?;
+                    let settings = state.settings.lock().clone();
+                    state.recorder.start_recording(app, &settings)?;
                     Ok("toggle: started")
                 }
                 RecordingState::Recording => {

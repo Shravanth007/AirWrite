@@ -27,6 +27,12 @@ keyring = { version = "3", features = ["windows-native"] }
 tempfile = "3"
 log = "0.4"
 env_logger = "0.11"
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+] }
 
 [profile.release]
 panic = "abort"

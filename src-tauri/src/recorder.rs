@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Instant;
@@ -6,6 +6,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
+use crate::ducking;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transcribe_groq;
@@ -20,6 +21,10 @@ pub enum RecordingState {
 pub struct Recorder {
     state: Arc<Mutex<RecordingState>>,
     audio_recorder: Arc<Mutex<AudioRecorder>>,
+    /// Master output volume captured right before we ducked it. `Some` only
+    /// while a duck is in effect; cleared on restore. Lives on the Recorder
+    /// so the duck/restore pair is naturally tied to the recording lifetime.
+    pre_duck_volume: Arc<Mutex<Option<f32>>>,
 }
 
 impl Default for Recorder {
@@ -33,6 +38,7 @@ impl Recorder {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
+            pre_duck_volume: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -40,17 +46,47 @@ impl Recorder {
         self.state.lock().clone()
     }
 
-    pub fn start_recording(&self, app: &AppHandle, mic_name: &str) -> Result<(), String> {
+    pub fn start_recording(
+        &self,
+        app: &AppHandle,
+        settings: &Settings,
+    ) -> Result<(), String> {
         {
             let mut state = self.state.lock();
             if *state != RecordingState::Ready {
                 return Err("Already recording or transcribing".to_string());
             }
-            self.audio_recorder.lock().start(mic_name)?;
+            self.audio_recorder.lock().start(&settings.microphone)?;
             *state = RecordingState::Recording;
         }
+
+        // Apply ducking AFTER the mic is already capturing. Failure is
+        // non-fatal — the recording is more important than the duck.
+        if settings.ducking_enabled {
+            match ducking::duck(settings.ducking_level) {
+                Ok(prior) => {
+                    *self.pre_duck_volume.lock() = Some(prior);
+                    info!(
+                        "Ducked master volume: {:.0}% → {}%",
+                        prior * 100.0,
+                        settings.ducking_level
+                    );
+                }
+                Err(e) => warn!("Audio ducking failed (continuing): {}", e),
+            }
+        }
+
         let _ = app.emit("recording-state", "recording");
         Ok(())
+    }
+
+    /// Restore the master volume if we ducked. Idempotent — clears the
+    /// snapshot so subsequent calls are no-ops. Always called on the path
+    /// out of a recording, regardless of success/failure.
+    fn restore_volume(&self) {
+        if let Some(prior) = self.pre_duck_volume.lock().take() {
+            ducking::restore(prior);
+        }
     }
 
     pub async fn stop_and_transcribe(
@@ -65,6 +101,10 @@ impl Recorder {
             }
             *state = RecordingState::Transcribing;
         }
+        // Restore audio as soon as the user stops recording, not after
+        // transcription finishes — they want the music back the moment they
+        // release the key, not after Groq replies.
+        self.restore_volume();
         let _ = app.emit("recording-state", "transcribing");
 
         let result = self.do_transcribe(settings).await;

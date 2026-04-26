@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod cleanup;
+pub mod ducking;
 pub mod paste;
 pub mod recorder;
 pub mod settings;

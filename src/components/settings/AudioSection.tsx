@@ -6,6 +6,7 @@ import {
   ShieldAlert,
   Mic2,
   Waves,
+  Volume2,
 } from "lucide-react";
 import type { Settings, MicDevice, MicTestResult } from "./types";
 import {
@@ -198,6 +199,94 @@ export function AudioSection({
           </div>
         )}
       </Block>
+
+      <Block className="mt-8">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center">
+              <Volume2 className="w-4 h-4 text-zinc-400" />
+            </div>
+            <div>
+              <p className="text-[13px] font-medium text-white">
+                Lower other audio while recording
+              </p>
+              <p className="text-[11px] text-zinc-500 max-w-[360px] leading-relaxed">
+                When you start dictating, the system master volume is briefly
+                reduced so music or video doesn't bleed into your mic.
+                Restored the moment you stop.
+              </p>
+            </div>
+          </div>
+          <Toggle
+            checked={settings.duckingEnabled}
+            onChange={(v) =>
+              setSettings({ ...settings, duckingEnabled: v })
+            }
+          />
+        </div>
+
+        <div
+          className={`pl-12 transition-opacity ${
+            settings.duckingEnabled ? "opacity-100" : "opacity-40 pointer-events-none"
+          }`}
+        >
+          <div className="flex items-center justify-between text-[11px] text-zinc-500 mb-2">
+            <span>Duck to</span>
+            <span className="font-mono text-zinc-300">
+              {settings.duckingLevel}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={settings.duckingLevel}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                duckingLevel: parseInt(e.target.value, 10),
+              })
+            }
+            className="w-full accent-white"
+            disabled={!settings.duckingEnabled}
+          />
+          <div className="flex justify-between text-[10px] text-zinc-600 mt-1.5 font-mono">
+            <span>silent</span>
+            <span>unchanged</span>
+          </div>
+        </div>
+      </Block>
     </div>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors border ${
+        checked
+          ? "bg-white border-white"
+          : "bg-transparent border-white/20 hover:border-white/30"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all ${
+          checked
+            ? "left-[18px] bg-black"
+            : "left-0.5 bg-white/40"
+        }`}
+      />
+    </button>
   );
 }
