@@ -8,6 +8,7 @@ import { AudioSection } from "./settings/AudioSection";
 import { HotkeySection } from "./settings/HotkeySection";
 import { RecordingSection } from "./settings/RecordingSection";
 import { AboutSection } from "./settings/AboutSection";
+import { ErrorBanner } from "./settings/ErrorBanner";
 import { Button } from "./settings/primitives";
 import type { Settings, MicDevice, SectionId } from "./settings/types";
 
@@ -141,6 +142,7 @@ export function SettingsPanel() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-black overflow-hidden">
+        <ErrorBanner />
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-[640px] mx-auto px-12 pt-14 pb-10">
             {section === "api-key" && (
