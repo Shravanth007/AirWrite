@@ -13,7 +13,12 @@ import { Button } from "./settings/primitives";
 import type { Settings, MicDevice, SectionId } from "./settings/types";
 
 function normalize(s: Settings): Settings {
-  return { ...s, groqApiKey: s.groqApiKey.trim() };
+  return {
+    ...s,
+    groqApiKey: s.groqApiKey.trim(),
+    hotkey: s.hotkey.trim(),
+    settingsHotkey: s.settingsHotkey.trim(),
+  };
 }
 
 const SEARCH_INDEX: Record<SectionId, string[]> = {

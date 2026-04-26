@@ -7,13 +7,23 @@ use airwrite_lib::settings::Settings;
 use log::{error, info, warn};
 use parking_lot::Mutex;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+
+/// Window of suppression for the settings toggle hotkey. Windows reports a
+/// brief is_focused=false right after show() before paint settles, and humans
+/// double-tap accelerators all the time. Anything inside this window after
+/// the previous toggle is treated as a duplicate and ignored.
+const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
     app_dir: PathBuf,
+    /// Timestamp of the last settings-window show/hide. Used by
+    /// `toggle_settings_window` to debounce rapid presses.
+    last_settings_toggle: Mutex<Option<Instant>>,
 }
 
 fn app_dir() -> PathBuf {
@@ -34,42 +44,63 @@ fn save_settings(
     state: State<AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    let old = state.settings.lock().clone();
-
-    settings.save(&state.app_dir)?;
-    *state.settings.lock() = settings.clone();
-
-    // Recording hotkey
-    if old.hotkey != settings.hotkey {
-        if let Err(e) = rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey) {
-            warn!("Recording hotkey rebind failed ({}). Reverting.", e);
-            let mut s = state.settings.lock();
-            s.hotkey = old.hotkey.clone();
-            let _ = s.save(&state.app_dir);
-            return Err(format!(
-                "Could not bind recording hotkey '{}': {}. Reverted.",
-                settings.hotkey, e
-            ));
-        }
-        info!("Recording hotkey rebound: {} → {}", old.hotkey, settings.hotkey);
+    // Validate before any side effects: reject hotkey conflicts so we never
+    // try to register the same accelerator twice.
+    let recording = settings.hotkey.trim();
+    let panel = settings.settings_hotkey.trim();
+    if !recording.is_empty() && !panel.is_empty() && recording == panel {
+        return Err(
+            "Recording and Settings hotkeys can't be the same combination."
+                .to_string(),
+        );
     }
 
-    // Settings (open-panel) hotkey
-    if old.settings_hotkey != settings.settings_hotkey {
+    // Snapshot the previous state so we can roll back hotkey rebinds if the
+    // second one fails (the first is already applied at the OS level).
+    let old = state.settings.lock().clone();
+    let recording_changed = old.hotkey != settings.hotkey;
+    let panel_changed = old.settings_hotkey != settings.settings_hotkey;
+
+    // Apply hotkey changes FIRST. If either fails, we bail without touching
+    // disk or in-memory state — meaning the user's working hotkeys keep
+    // working. Disk write only happens once everything is bound.
+    if recording_changed {
+        rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey)
+            .map_err(|e| format!("Could not bind recording hotkey '{}': {}", settings.hotkey, e))?;
+    }
+    if panel_changed {
         if let Err(e) =
             rebind_settings_hotkey(&app, &old.settings_hotkey, &settings.settings_hotkey)
         {
-            warn!("Settings hotkey rebind failed ({}). Reverting.", e);
-            let mut s = state.settings.lock();
-            s.settings_hotkey = old.settings_hotkey.clone();
-            let _ = s.save(&state.app_dir);
+            // Settings hotkey failed — undo the recording rebind so the user
+            // isn't left with a half-applied combo.
+            if recording_changed {
+                if let Err(re) = rebind_recording_hotkey(&app, &settings.hotkey, &old.hotkey) {
+                    error!(
+                        "Recovery rebind of recording hotkey '{}' failed: {}",
+                        old.hotkey, re
+                    );
+                }
+            }
             return Err(format!(
-                "Could not bind settings hotkey '{}': {}. Reverted.",
+                "Could not bind settings hotkey '{}': {}",
                 settings.settings_hotkey, e
             ));
         }
+    }
+
+    // Both rebinds succeeded (or there were none). Now commit to disk and
+    // memory. Any failure here is best-effort — the OS already has the new
+    // hotkeys, and the next restart will reload from disk.
+    settings.save(&state.app_dir)?;
+    *state.settings.lock() = settings.clone();
+
+    if recording_changed {
+        info!("Recording hotkey: {} → {}", old.hotkey, settings.hotkey);
+    }
+    if panel_changed {
         info!(
-            "Settings hotkey rebound: {} → {}",
+            "Settings hotkey: {} → {}",
             old.settings_hotkey, settings.settings_hotkey
         );
     }
@@ -228,14 +259,28 @@ fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(),
 }
 
 /// Hotkey-driven toggle: hidden → show & focus, visible-but-unfocused →
-/// focus, visible & focused → hide. The tray menu's "Settings" entry
-/// deliberately uses `open_settings` (always-show) instead — clicking a menu
-/// item is unambiguous intent to see the window.
+/// focus, visible & focused → hide. Debounced so rapid double-presses (and
+/// the focus race that Windows triggers right after `show()`) don't ping-pong
+/// the window state. The tray menu's "Settings" entry deliberately uses
+/// `open_settings` (always-show) instead — clicking a menu item is
+/// unambiguous intent to see the window.
 fn toggle_settings_window(handle: &AppHandle) {
     let Some(w) = handle.get_webview_window("settings") else {
         warn!("toggle_settings_window: settings window not found");
         return;
     };
+    let state = handle.state::<AppState>();
+
+    // Suppress if we acted on this hotkey within the debounce window.
+    {
+        let last = state.last_settings_toggle.lock();
+        if let Some(t) = *last {
+            if t.elapsed() < SETTINGS_TOGGLE_DEBOUNCE {
+                return;
+            }
+        }
+    }
+
     let visible = w.is_visible().unwrap_or(false);
     let focused = w.is_focused().unwrap_or(false);
     if visible && focused {
@@ -245,6 +290,7 @@ fn toggle_settings_window(handle: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    *state.last_settings_toggle.lock() = Some(Instant::now());
 }
 
 fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
@@ -339,6 +385,7 @@ fn main() {
             recorder: Recorder::new(),
             settings: Mutex::new(settings),
             app_dir: dir,
+            last_settings_toggle: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,

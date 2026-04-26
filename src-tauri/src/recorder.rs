@@ -76,7 +76,6 @@ impl Recorder {
             Ok(text) => {
                 info!("Transcription: {:?}", text);
                 let _ = app.emit("recording-state", "done");
-                let _ = app.emit("recording-transcription", text);
             }
             Err(e) => {
                 let _ = app.emit("recording-error", e);

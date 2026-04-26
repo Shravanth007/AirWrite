@@ -43,8 +43,6 @@ export function Overlay() {
         setErrorMsg("");
         if (s === "done") reset(900);
       }),
-      // Transcription is intentionally not displayed in the overlay anymore;
-      // the listener stays so future Settings/history views can read it.
       listen<string>("recording-error", (e) => {
         setState("error");
         setErrorMsg(typeof e.payload === "string" ? e.payload : "Unknown error");
