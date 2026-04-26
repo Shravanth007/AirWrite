@@ -96,22 +96,60 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
-async fn do_toggle_recording(
+/// Dispatch one hotkey event into the recorder. Branches on the user's
+/// `recording_mode` setting at the moment the key is hit, so toggling the
+/// mode in Settings takes effect on the next press without a restart.
+async fn handle_hotkey_event(
     app: &AppHandle,
     state: &AppState,
-) -> Result<String, String> {
-    match state.recorder.get_state() {
-        RecordingState::Ready => {
-            let mic = state.settings.lock().microphone.clone();
-            state.recorder.start_recording(app, &mic)?;
-            Ok("recording".to_string())
-        }
-        RecordingState::Recording => {
-            let settings = state.settings.lock().clone();
-            state.recorder.stop_and_transcribe(app, &settings).await
-        }
-        RecordingState::Transcribing => {
-            Err("Currently transcribing, please wait".to_string())
+    pressed: bool,
+) -> Result<&'static str, String> {
+    let mode = state.settings.lock().recording_mode.clone();
+
+    match mode.as_str() {
+        // Press = start, release = stop & transcribe.
+        "push_to_talk" => match (pressed, state.recorder.get_state()) {
+            (true, RecordingState::Ready) => {
+                let mic = state.settings.lock().microphone.clone();
+                state.recorder.start_recording(app, &mic)?;
+                Ok("ptt: started")
+            }
+            (false, RecordingState::Recording) => {
+                let settings = state.settings.lock().clone();
+                state
+                    .recorder
+                    .stop_and_transcribe(app, &settings)
+                    .await
+                    .map(|_| "ptt: stopped & transcribed")
+            }
+            // Press while we're still transcribing the previous burst, or
+            // release without a matching press — both are benign no-ops.
+            _ => Ok("ptt: noop"),
+        },
+
+        // Toggle (default): act only on press.
+        _ => {
+            if !pressed {
+                return Ok("toggle: ignored release");
+            }
+            match state.recorder.get_state() {
+                RecordingState::Ready => {
+                    let mic = state.settings.lock().microphone.clone();
+                    state.recorder.start_recording(app, &mic)?;
+                    Ok("toggle: started")
+                }
+                RecordingState::Recording => {
+                    let settings = state.settings.lock().clone();
+                    state
+                        .recorder
+                        .stop_and_transcribe(app, &settings)
+                        .await
+                        .map(|_| "toggle: stopped & transcribed")
+                }
+                RecordingState::Transcribing => {
+                    Err("Currently transcribing, please wait".to_string())
+                }
+            }
         }
     }
 }
@@ -121,20 +159,18 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
     handle
         .global_shortcut()
         .on_shortcut(accelerator, move |_app, _shortcut, event| {
-            if event.state != ShortcutState::Pressed {
-                return;
-            }
+            let pressed = event.state == ShortcutState::Pressed;
             let handle = captured.clone();
             tauri::async_runtime::spawn(async move {
                 let state = handle.state::<AppState>();
-                match do_toggle_recording(&handle, state.inner()).await {
-                    Ok(r) => info!("Recording transition: {}", r),
+                match handle_hotkey_event(&handle, state.inner(), pressed).await {
+                    Ok(r) => info!("Hotkey: {}", r),
                     Err(e) => {
-                        // Benign — user pressed too fast while transcribing.
+                        // Benign — user mashed the key during transcribing.
                         if e.contains("transcribing") {
                             return;
                         }
-                        error!("Toggle failed: {}", e);
+                        error!("Hotkey failed: {}", e);
                         let _ = handle.emit("recording-error", &e);
                     }
                 }
