@@ -222,9 +222,29 @@ fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(),
             if event.state != ShortcutState::Pressed {
                 return;
             }
-            open_settings(captured.clone());
+            toggle_settings_window(&captured);
         })
         .map_err(|e| e.to_string())
+}
+
+/// Hotkey-driven toggle: hidden → show & focus, visible-but-unfocused →
+/// focus, visible & focused → hide. The tray menu's "Settings" entry
+/// deliberately uses `open_settings` (always-show) instead — clicking a menu
+/// item is unambiguous intent to see the window.
+fn toggle_settings_window(handle: &AppHandle) {
+    let Some(w) = handle.get_webview_window("settings") else {
+        warn!("toggle_settings_window: settings window not found");
+        return;
+    };
+    let visible = w.is_visible().unwrap_or(false);
+    let focused = w.is_focused().unwrap_or(false);
+    if visible && focused {
+        let _ = w.hide();
+    } else {
+        let _ = w.unminimize();
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
 }
 
 fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
