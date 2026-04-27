@@ -4,6 +4,7 @@ use hound::{WavSpec, WavWriter};
 use log::{debug, error, info, warn};
 use parking_lot::Mutex;
 use std::path::Path;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 /// Peak below this threshold is treated as "no real audio" — Whisper
@@ -38,21 +39,44 @@ pub fn list_microphones() -> Vec<MicDevice> {
     devices
 }
 
-/// Wrapper to hold a `cpal::Stream` inside `AudioRecorder` (shared via
-/// `Arc<Mutex<…>>`). On Windows the underlying WASAPI handle is COM-affine:
-/// it must be created and dropped on the same thread. We satisfy that today
-/// because `start` and `stop_and_save` both run on the global-shortcut
-/// callback's spawned task, which Tauri pins to a single async runtime
-/// thread.
-struct SendStream(#[allow(dead_code)] cpal::Stream);
-unsafe impl Send for SendStream {}
-unsafe impl Sync for SendStream {}
-
-pub struct AudioRecorder {
+/// Live cpal stream + the bookkeeping needed to interpret what it produced.
+/// This struct never crosses the audio worker thread boundary — its `Drop`
+/// (which releases the WASAPI handle) always runs on the same thread that
+/// built the stream.
+struct ActiveStream {
+    _stream: cpal::Stream,
     samples: Arc<Mutex<Vec<f32>>>,
-    stream: Option<SendStream>,
-    source_sample_rate: u32,
-    source_channels: u16,
+    sample_rate: u32,
+    channels: u16,
+    sample_format: SampleFormat,
+}
+
+/// Result of stopping a recording. Public so `test_microphone` can inspect
+/// raw samples without forcing them through the WAV-writer path.
+pub struct DrainedAudio {
+    pub samples: Vec<f32>,
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub sample_format: SampleFormat,
+}
+
+enum AudioCommand {
+    Start {
+        mic_name: String,
+        reply: Sender<Result<(), String>>,
+    },
+    Stop {
+        reply: Sender<Result<DrainedAudio, String>>,
+    },
+    Shutdown,
+}
+
+/// Handle to the dedicated audio worker thread. The thread owns the
+/// `cpal::Stream` so build, play, and drop all happen on the same OS thread —
+/// WASAPI's COM-affine handles require this. Methods here only send commands
+/// down a channel and wait for replies.
+pub struct AudioRecorder {
+    cmd_tx: Sender<AudioCommand>,
 }
 
 impl Default for AudioRecorder {
@@ -61,128 +85,64 @@ impl Default for AudioRecorder {
     }
 }
 
+impl Drop for AudioRecorder {
+    fn drop(&mut self) {
+        // Best-effort: tell the worker to exit. If it's already gone, the
+        // send fails silently.
+        let _ = self.cmd_tx.send(AudioCommand::Shutdown);
+    }
+}
+
 impl AudioRecorder {
     pub fn new() -> Self {
-        Self {
-            samples: Arc::new(Mutex::new(Vec::new())),
-            stream: None,
-            source_sample_rate: 48000,
-            source_channels: 1,
-        }
+        let (cmd_tx, cmd_rx) = channel();
+        std::thread::Builder::new()
+            .name("airwrite-audio".into())
+            .spawn(move || worker_loop(cmd_rx))
+            .expect("failed to spawn audio worker thread");
+        Self { cmd_tx }
     }
 
     pub fn start(&mut self, mic_name: &str) -> Result<(), String> {
-        self.samples.lock().clear();
-
-        let host = cpal::default_host();
-        let device = if mic_name == "default" {
-            host.default_input_device()
-                .ok_or("No default input device found")?
-        } else {
-            host.input_devices()
-                .map_err(|e| e.to_string())?
-                .find(|d| d.name().map(|n| n == mic_name).unwrap_or(false))
-                .ok_or_else(|| format!("Microphone '{}' not found", mic_name))?
-        };
-
-        let device_label = device.name().unwrap_or_else(|_| "<unknown>".into());
-        let supported = device
-            .default_input_config()
-            .map_err(|e| format!("Failed to get default input config: {}", e))?;
-
-        let sample_format = supported.sample_format();
-        let sample_rate = supported.sample_rate().0;
-        let channels = supported.channels();
-        info!(
-            "Opening mic '{}': {}Hz, {} ch, format {:?}",
-            device_label, sample_rate, channels, sample_format
-        );
-
-        self.source_sample_rate = sample_rate;
-        self.source_channels = channels;
-
-        let config: cpal::StreamConfig = supported.config();
-        let samples = self.samples.clone();
-        let err_fn = |e: cpal::StreamError| error!("Audio stream error: {}", e);
-
-        // CPAL's typed `build_input_stream::<T>` uses the closure's element type
-        // to negotiate the format with the OS. Picking the wrong T silently
-        // produces garbage on some Windows drivers, which is what causes
-        // Whisper to return "Thank you" on otherwise-working systems. Branch
-        // on the real format reported by the device.
-        let stream = match sample_format {
-            SampleFormat::F32 => device.build_input_stream(
-                &config,
-                move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                    samples.lock().extend_from_slice(data);
-                },
-                err_fn,
-                None,
-            ),
-            SampleFormat::I16 => device.build_input_stream(
-                &config,
-                move |data: &[i16], _: &cpal::InputCallbackInfo| {
-                    let mut buf = samples.lock();
-                    buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
-                },
-                err_fn,
-                None,
-            ),
-            SampleFormat::U16 => device.build_input_stream(
-                &config,
-                move |data: &[u16], _: &cpal::InputCallbackInfo| {
-                    let mut buf = samples.lock();
-                    buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
-                },
-                err_fn,
-                None,
-            ),
-            SampleFormat::I32 => device.build_input_stream(
-                &config,
-                move |data: &[i32], _: &cpal::InputCallbackInfo| {
-                    let mut buf = samples.lock();
-                    buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
-                },
-                err_fn,
-                None,
-            ),
-            other => return Err(format!("Unsupported sample format: {:?}", other)),
-        }
-        .map_err(|e| format!("Failed to build input stream: {}", e))?;
-
-        stream
-            .play()
-            .map_err(|e| format!("Failed to start mic stream: {}", e))?;
-        self.stream = Some(SendStream(stream));
-        debug!("Audio recording started");
+        let (reply_tx, reply_rx) = channel();
+        self.cmd_tx
+            .send(AudioCommand::Start {
+                mic_name: mic_name.to_string(),
+                reply: reply_tx,
+            })
+            .map_err(|_| "Audio worker thread is not running".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "Audio worker dropped reply".to_string())??;
         Ok(())
+    }
+
+    /// Stop the active stream and return raw captured samples. Used by the
+    /// mic-test path, and internally by `stop_and_save`.
+    pub fn stop_and_drain(&mut self) -> Result<DrainedAudio, String> {
+        let (reply_tx, reply_rx) = channel();
+        self.cmd_tx
+            .send(AudioCommand::Stop { reply: reply_tx })
+            .map_err(|_| "Audio worker thread is not running".to_string())?;
+        reply_rx
+            .recv()
+            .map_err(|_| "Audio worker dropped reply".to_string())?
     }
 
     /// Stop the active stream, write the captured audio to `output_path`,
     /// and return the duration of the recording in seconds (so callers can
     /// reason about real-time-factor against the transcription latency).
     pub fn stop_and_save(&mut self, output_path: &Path) -> Result<f32, String> {
-        // Drop stops the stream — must happen on the same thread as `start`.
-        self.stream = None;
-        debug!("Audio recording stopped");
+        let drained = self.stop_and_drain()?;
 
-        let mut samples = self.samples.lock();
-        if samples.is_empty() {
+        if drained.samples.is_empty() {
             return Err(
                 "No audio captured. Check that your microphone is enabled and not muted.".into(),
             );
         }
 
-        let mono: Vec<f32> = if self.source_channels > 1 {
-            samples
-                .chunks(self.source_channels as usize)
-                .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
-                .collect()
-        } else {
-            samples.clone()
-        };
-
-        let duration_secs = mono.len() as f32 / self.source_sample_rate as f32;
+        let mono = downmix_mono(&drained.samples, drained.channels);
+        let duration_secs = mono.len() as f32 / drained.sample_rate as f32;
         let peak = mono.iter().fold(0.0_f32, |a, &s| a.max(s.abs()));
         let rms = if mono.is_empty() {
             0.0
@@ -199,7 +159,6 @@ impl AudioRecorder {
 
         if peak < SILENCE_PEAK_THRESHOLD {
             warn!("Audio peak {:.5} below silence threshold — refusing to send.", peak);
-            samples.clear();
             return Err(format!(
                 "Microphone captured silence (peak {:.4}). \
                  Check Windows mic permissions, mute switch, and that the right input is selected in Settings.",
@@ -207,7 +166,7 @@ impl AudioRecorder {
             ));
         }
 
-        let resampled = resample(&mono, self.source_sample_rate, 16000);
+        let resampled = resample(&mono, drained.sample_rate, 16000);
         debug!("Resampled to {} samples at 16kHz", resampled.len());
 
         let spec = WavSpec {
@@ -223,10 +182,154 @@ impl AudioRecorder {
             writer.write_sample(amplitude).map_err(|e| e.to_string())?;
         }
         writer.finalize().map_err(|e| e.to_string())?;
-        samples.clear();
 
         debug!("WAV saved to {}", output_path.display());
         Ok(duration_secs)
+    }
+}
+
+fn worker_loop(rx: Receiver<AudioCommand>) {
+    let mut active: Option<ActiveStream> = None;
+    while let Ok(cmd) = rx.recv() {
+        match cmd {
+            AudioCommand::Start { mic_name, reply } => {
+                if active.is_some() {
+                    let _ = reply.send(Err("Audio stream already active".to_string()));
+                    continue;
+                }
+                match build_stream(&mic_name) {
+                    Ok(a) => {
+                        active = Some(a);
+                        debug!("Audio recording started");
+                        let _ = reply.send(Ok(()));
+                    }
+                    Err(e) => {
+                        let _ = reply.send(Err(e));
+                    }
+                }
+            }
+            AudioCommand::Stop { reply } => {
+                let Some(a) = active.take() else {
+                    let _ = reply.send(Err("Not recording".to_string()));
+                    continue;
+                };
+                let samples = std::mem::take(&mut *a.samples.lock());
+                let sample_rate = a.sample_rate;
+                let channels = a.channels;
+                let sample_format = a.sample_format;
+                // `a` (and therefore the cpal::Stream inside it) is dropped
+                // here, on this worker thread — the only place it's ever
+                // touched after construction.
+                drop(a);
+                debug!("Audio recording stopped");
+                let _ = reply.send(Ok(DrainedAudio {
+                    samples,
+                    sample_rate,
+                    channels,
+                    sample_format,
+                }));
+            }
+            AudioCommand::Shutdown => break,
+        }
+    }
+}
+
+fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
+    let host = cpal::default_host();
+    let device = if mic_name == "default" {
+        host.default_input_device()
+            .ok_or("No default input device found")?
+    } else {
+        host.input_devices()
+            .map_err(|e| e.to_string())?
+            .find(|d| d.name().map(|n| n == mic_name).unwrap_or(false))
+            .ok_or_else(|| format!("Microphone '{}' not found", mic_name))?
+    };
+
+    let device_label = device.name().unwrap_or_else(|_| "<unknown>".into());
+    let supported = device
+        .default_input_config()
+        .map_err(|e| format!("Failed to get default input config: {}", e))?;
+
+    let sample_format = supported.sample_format();
+    let sample_rate = supported.sample_rate().0;
+    let channels = supported.channels();
+    info!(
+        "Opening mic '{}': {}Hz, {} ch, format {:?}",
+        device_label, sample_rate, channels, sample_format
+    );
+
+    let config: cpal::StreamConfig = supported.config();
+    let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
+    let samples_for_cb = samples.clone();
+    let err_fn = |e: cpal::StreamError| error!("Audio stream error: {}", e);
+
+    // CPAL's typed `build_input_stream::<T>` uses the closure's element type
+    // to negotiate the format with the OS. Picking the wrong T silently
+    // produces garbage on some Windows drivers, which is what causes
+    // Whisper to return "Thank you" on otherwise-working systems. Branch
+    // on the real format reported by the device.
+    let stream = match sample_format {
+        SampleFormat::F32 => device.build_input_stream(
+            &config,
+            move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                samples_for_cb.lock().extend_from_slice(data);
+            },
+            err_fn,
+            None,
+        ),
+        SampleFormat::I16 => device.build_input_stream(
+            &config,
+            move |data: &[i16], _: &cpal::InputCallbackInfo| {
+                let mut buf = samples_for_cb.lock();
+                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+            },
+            err_fn,
+            None,
+        ),
+        SampleFormat::U16 => device.build_input_stream(
+            &config,
+            move |data: &[u16], _: &cpal::InputCallbackInfo| {
+                let mut buf = samples_for_cb.lock();
+                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+            },
+            err_fn,
+            None,
+        ),
+        SampleFormat::I32 => device.build_input_stream(
+            &config,
+            move |data: &[i32], _: &cpal::InputCallbackInfo| {
+                let mut buf = samples_for_cb.lock();
+                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+            },
+            err_fn,
+            None,
+        ),
+        other => return Err(format!("Unsupported sample format: {:?}", other)),
+    }
+    .map_err(|e| format!("Failed to build input stream: {}", e))?;
+
+    stream
+        .play()
+        .map_err(|e| format!("Failed to start mic stream: {}", e))?;
+
+    Ok(ActiveStream {
+        _stream: stream,
+        samples,
+        sample_rate,
+        channels,
+        sample_format,
+    })
+}
+
+fn downmix_mono(samples: &[f32], channels: u16) -> Vec<f32> {
+    if channels > 1 {
+        samples
+            .chunks(channels as usize)
+            .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
+            .collect()
+    } else {
+        samples.to_vec()
     }
 }
 
@@ -250,38 +353,22 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
     let mut recorder = AudioRecorder::new();
     recorder.start(mic_name)?;
     std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
+    let drained = recorder.stop_and_drain()?;
+    drop(recorder); // worker thread shuts down on the next recv
 
-    // Drop the stream; pull the captured samples.
-    recorder.stream = None;
-    let samples = std::mem::take(&mut *recorder.samples.lock());
-
-    let host = cpal::default_host();
-    let device = if mic_name == "default" {
-        host.default_input_device()
+    // Friendly device name — best effort. On "default" we resolve to the
+    // current default input; otherwise we just echo the requested name.
+    let device_label = if mic_name == "default" {
+        cpal::default_host()
+            .default_input_device()
+            .and_then(|d| d.name().ok())
+            .unwrap_or_else(|| "default".into())
     } else {
-        host.input_devices()
-            .ok()
-            .and_then(|mut it| it.find(|d| d.name().map(|n| n == mic_name).unwrap_or(false)))
+        mic_name.to_string()
     };
-    let device_label = device
-        .as_ref()
-        .and_then(|d| d.name().ok())
-        .unwrap_or_else(|| mic_name.to_string());
-    let format = device
-        .as_ref()
-        .and_then(|d| d.default_input_config().ok())
-        .map(|c| format!("{:?}", c.sample_format()))
-        .unwrap_or_else(|| "unknown".into());
+    let format = format!("{:?}", drained.sample_format);
 
-    let mono: Vec<f32> = if recorder.source_channels > 1 {
-        samples
-            .chunks(recorder.source_channels as usize)
-            .map(|frame| frame.iter().sum::<f32>() / frame.len() as f32)
-            .collect()
-    } else {
-        samples
-    };
-
+    let mono = downmix_mono(&drained.samples, drained.channels);
     let peak = mono.iter().fold(0.0_f32, |a, &s| a.max(s.abs()));
     let rms = if mono.is_empty() {
         0.0
@@ -304,8 +391,8 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
 
     Ok(MicTestResult {
         device: device_label,
-        sample_rate: recorder.source_sample_rate,
-        channels: recorder.source_channels,
+        sample_rate: drained.sample_rate,
+        channels: drained.channels,
         format,
         duration_ms,
         samples_collected: mono.len(),

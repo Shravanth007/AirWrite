@@ -36,6 +36,10 @@ Built with **Tauri 2 · Rust · React 18 · Vite · Tailwind 4**.
 - App config (mic, hotkeys, recording mode) lives in
   `%LOCALAPPDATA%\com.airwrite.app\config.json`. No telemetry, no
   analytics, no third-party tracking.
+- Pasting works by setting the system clipboard to the transcribed text and
+  synthesising `Ctrl+V`. Whatever was on your clipboard before a dictation
+  is **overwritten** — AirWrite does not save and restore the previous
+  contents. Copy anything important before dictating.
 
 ## Quick start (dev)
 

@@ -73,7 +73,8 @@ export function SettingsPanel() {
     };
   }, []);
 
-  // "/" focuses search and live-jumps to a matching section.
+  // Live-jump to the section whose keywords match what the user typed.
+  // ("/" focusing the search field is handled inside Sidebar.)
   useEffect(() => {
     const id = matchSearch(query);
     if (id) setSection(id);

@@ -7,6 +7,7 @@ use airwrite_lib::settings::Settings;
 
 use log::{error, info, warn};
 use parking_lot::Mutex;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -33,6 +34,11 @@ struct AppState {
     /// Timestamp of the last settings-window show/hide. Used by
     /// `toggle_settings_window` to debounce rapid presses.
     last_settings_toggle: Mutex<Option<Instant>>,
+    /// Authoritative set of accelerators we have successfully registered
+    /// with the global-shortcut plugin. Updated on every register/unregister
+    /// so the rebind helpers don't have to trust the OS state — if our set
+    /// says an accelerator is bound, it is.
+    registered_hotkeys: Mutex<HashSet<String>>,
 }
 
 fn app_dir() -> PathBuf {
@@ -100,11 +106,16 @@ fn save_settings(
         }
     }
 
-    // Both rebinds succeeded (or there were none). Now commit to disk and
-    // memory. Any failure here is best-effort — the OS already has the new
-    // hotkeys, and the next restart will reload from disk.
-    settings.save(&state.app_dir)?;
+    // Both rebinds succeeded (or there were none). Update in-memory state
+    // FIRST so the hotkey lambdas read the same recording mode/mic/etc. that
+    // the OS hotkeys are now bound to. Then attempt to persist to disk —
+    // a disk failure is surfaced to the user but cannot leave memory and the
+    // OS-level hotkeys disagreeing about which settings are active.
     *state.settings.lock() = settings.clone();
+    if let Err(e) = settings.save(&state.app_dir) {
+        warn!("Settings applied in memory but disk save failed: {}", e);
+        return Err(e);
+    }
 
     if recording_changed {
         info!("Recording hotkey: {} → {}", old.hotkey, settings.hotkey);
@@ -226,6 +237,16 @@ async fn handle_hotkey_event(
 }
 
 fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
+    // Idempotent: if our authoritative set says this accelerator is already
+    // bound, don't double-register (which would attach a second handler).
+    if handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .contains(accelerator)
+    {
+        return Ok(());
+    }
     let captured = handle.clone();
     handle
         .global_shortcut()
@@ -247,7 +268,30 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
                 }
             });
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .insert(accelerator.to_string());
+    Ok(())
+}
+
+/// Unregister an accelerator and drop it from the registry. Tolerates the
+/// "wasn't actually bound" case so the registry can self-heal if it ever
+/// disagrees with the plugin.
+fn unregister_hotkey(handle: &AppHandle, accelerator: &str) {
+    if accelerator.is_empty() {
+        return;
+    }
+    if let Err(e) = handle.global_shortcut().unregister(accelerator) {
+        warn!("Failed to unregister hotkey '{}': {}", accelerator, e);
+    }
+    handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .remove(accelerator);
 }
 
 fn rebind_recording_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
@@ -257,15 +301,21 @@ fn rebind_recording_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(
     // Only after `new` is live do we drop `old`.
     register_recording_hotkey(handle, new)?;
     if !old.is_empty() && old != new {
-        if let Err(e) = handle.global_shortcut().unregister(old) {
-            warn!("Failed to unregister old recording hotkey '{}': {}", old, e);
-        }
+        unregister_hotkey(handle, old);
     }
     Ok(())
 }
 
 fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
     if accelerator.is_empty() {
+        return Ok(());
+    }
+    if handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .contains(accelerator)
+    {
         return Ok(());
     }
     let captured = handle.clone();
@@ -277,7 +327,13 @@ fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(),
             }
             toggle_settings_window(&captured);
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .insert(accelerator.to_string());
+    Ok(())
 }
 
 /// Hotkey-driven toggle: hidden → show & focus, visible-but-unfocused →
@@ -321,9 +377,7 @@ fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<()
     // failure leaves the old hotkey working.
     register_settings_hotkey(handle, new)?;
     if !old.is_empty() && old != new {
-        if let Err(e) = handle.global_shortcut().unregister(old) {
-            warn!("Failed to unregister old settings hotkey '{}': {}", old, e);
-        }
+        unregister_hotkey(handle, old);
     }
     Ok(())
 }
@@ -415,6 +469,7 @@ fn main() {
             settings: Mutex::new(settings),
             app_dir: dir,
             last_settings_toggle: Mutex::new(None),
+            registered_hotkeys: Mutex::new(HashSet::new()),
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,

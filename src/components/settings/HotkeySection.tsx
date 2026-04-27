@@ -73,8 +73,29 @@ const KEY_DISPLAY: Record<string, string> = {
   Down: "↓",
   Left: "←",
   Right: "→",
+  Space: "Space",
+  Enter: "↵",
+  Tab: "Tab",
+  Backspace: "⌫",
+  Delete: "Del",
+  Insert: "Ins",
+  Home: "Home",
+  End: "End",
+  PageUp: "PgUp",
+  PageDown: "PgDn",
+  NumpadAdd: "Num +",
+  NumpadSubtract: "Num −",
+  NumpadMultiply: "Num ×",
+  NumpadDivide: "Num ÷",
+  NumpadDecimal: "Num .",
+  NumpadEnter: "Num ↵",
 };
-const displayKey = (k: string) => KEY_DISPLAY[k] ?? k;
+const displayKey = (k: string) => {
+  if (k in KEY_DISPLAY) return KEY_DISPLAY[k];
+  // "Numpad0".."Numpad9" → "Num 0".."Num 9"
+  if (/^Numpad\d$/.test(k)) return `Num ${k.slice(6)}`;
+  return k;
+};
 
 function Chips({ combo }: { combo: string }) {
   return (

@@ -151,8 +151,7 @@ impl Recorder {
         let api_started = Instant::now();
         let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
         let api_secs = api_started.elapsed().as_secs_f32();
-        // `temp` drops here → file is removed.
-        drop(temp);
+        // `temp` drops at end of scope → file is removed.
 
         let cleaned = cleanup_text(&raw_text);
         let paste_started = Instant::now();
