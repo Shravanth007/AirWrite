@@ -1,5 +1,6 @@
 use log::{info, warn};
 use parking_lot::Mutex;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
@@ -10,6 +11,11 @@ use crate::ducking;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transcribe_groq;
+
+/// Filename used inside the app data dir to remember a pre-duck volume that
+/// hasn't been restored yet. Read on startup, written on duck, deleted on
+/// clean restore.
+const DUCK_RECOVERY_FILENAME: &str = "pre_duck.txt";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum RecordingState {
@@ -25,20 +31,18 @@ pub struct Recorder {
     /// while a duck is in effect; cleared on restore. Lives on the Recorder
     /// so the duck/restore pair is naturally tied to the recording lifetime.
     pre_duck_volume: Arc<Mutex<Option<f32>>>,
-}
-
-impl Default for Recorder {
-    fn default() -> Self {
-        Self::new()
-    }
+    /// On-disk mirror of `pre_duck_volume`. Lets us recover the master
+    /// volume on next launch if the process dies mid-recording.
+    duck_recovery_path: PathBuf,
 }
 
 impl Recorder {
-    pub fn new() -> Self {
+    pub fn new(app_dir: &Path) -> Self {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
             pre_duck_volume: Arc::new(Mutex::new(None)),
+            duck_recovery_path: app_dir.join(DUCK_RECOVERY_FILENAME),
         }
     }
 
@@ -66,6 +70,9 @@ impl Recorder {
             match ducking::duck(settings.ducking_level) {
                 Ok(prior) => {
                     *self.pre_duck_volume.lock() = Some(prior);
+                    // Mirror the snapshot to disk so a crash mid-recording
+                    // doesn't leave the user's master volume stuck low.
+                    ducking::save_pending(prior, &self.duck_recovery_path);
                     info!(
                         "Ducked master volume: {:.0}% → {}%",
                         prior * 100.0,
@@ -86,6 +93,9 @@ impl Recorder {
     fn restore_volume(&self) {
         if let Some(prior) = self.pre_duck_volume.lock().take() {
             ducking::restore(prior);
+            // Clean exit: drop the recovery file so we don't try to restore
+            // a stale level on next launch.
+            ducking::clear_pending(&self.duck_recovery_path);
         }
     }
 
