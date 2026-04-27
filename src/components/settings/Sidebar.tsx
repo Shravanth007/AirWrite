@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Mic2,
@@ -42,11 +43,37 @@ export function Sidebar({
   setQuery,
 }: Props) {
   const apiKeyOk = settings.groqApiKey.trim().length > 0;
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Press "/" anywhere in the Settings window to jump into the search field —
+  // matches the kbd hint shown next to the input. Skipped while the user is
+  // already typing in a form control so a literal "/" doesn't get hijacked.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.ctrlKey || e.altKey || e.metaKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <aside className="relative w-[260px] shrink-0 flex flex-col bg-black border-r border-white/[0.06]">
       <BrandBlock />
       <div className="px-4 mt-1">
-        <SearchField value={query} onChange={setQuery} />
+        <SearchField inputRef={searchRef} value={query} onChange={setQuery} />
       </div>
 
       <div className="px-3 mt-4">
@@ -75,7 +102,7 @@ export function Sidebar({
           <ExternalRow
             label="Support"
             Icon={LifeBuoy}
-            url="https://github.com/anthropics/claude-code/issues"
+            url="https://github.com/Shravanth007/AirWrite/issues"
           />
         </NavGroup>
       </div>
@@ -116,9 +143,11 @@ function BrandBlock() {
 }
 
 function SearchField({
+  inputRef,
   value,
   onChange,
 }: {
+  inputRef?: React.Ref<HTMLInputElement>;
   value: string;
   onChange: (v: string) => void;
 }) {
@@ -126,6 +155,7 @@ function SearchField({
     <div className="relative">
       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
       <input
+        ref={inputRef}
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
