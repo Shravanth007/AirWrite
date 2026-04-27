@@ -61,9 +61,11 @@ fn save_settings(
     let recording_changed = old.hotkey != settings.hotkey;
     let panel_changed = old.settings_hotkey != settings.settings_hotkey;
 
-    // Apply hotkey changes FIRST. If either fails, we bail without touching
-    // disk or in-memory state — meaning the user's working hotkeys keep
-    // working. Disk write only happens once everything is bound.
+    // Apply hotkey changes FIRST. The rebind helpers register-new-then-
+    // unregister-old, so a failure on either leaves the previous hotkey
+    // intact at the OS level. If both rebinds need to run and the second
+    // fails, we explicitly roll the first one back (see below). Disk write
+    // only happens once every requested rebind has succeeded.
     if recording_changed {
         rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey)
             .map_err(|e| format!("Could not bind recording hotkey '{}': {}", settings.hotkey, e))?;
@@ -233,13 +235,17 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
 }
 
 fn rebind_recording_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
-    let shortcut = handle.global_shortcut();
-    if !old.is_empty() {
-        if let Err(e) = shortcut.unregister(old) {
-            warn!("Failed to unregister '{}': {}", old, e);
+    // Register the new accelerator FIRST. If that fails (combo already in
+    // use, malformed, etc.) we surface the error with the user's previous
+    // hotkey still bound — they don't get stranded with no working key.
+    // Only after `new` is live do we drop `old`.
+    register_recording_hotkey(handle, new)?;
+    if !old.is_empty() && old != new {
+        if let Err(e) = handle.global_shortcut().unregister(old) {
+            warn!("Failed to unregister old recording hotkey '{}': {}", old, e);
         }
     }
-    register_recording_hotkey(handle, new)
+    Ok(())
 }
 
 fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
@@ -294,13 +300,16 @@ fn toggle_settings_window(handle: &AppHandle) {
 }
 
 fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
-    let shortcut = handle.global_shortcut();
-    if !old.is_empty() {
-        if let Err(e) = shortcut.unregister(old) {
-            warn!("Failed to unregister settings hotkey '{}': {}", old, e);
+    // Same atomic-rebind pattern as `rebind_recording_hotkey`: bind the new
+    // combo first; only release the old one if the new bind succeeded. A
+    // failure leaves the old hotkey working.
+    register_settings_hotkey(handle, new)?;
+    if !old.is_empty() && old != new {
+        if let Err(e) = handle.global_shortcut().unregister(old) {
+            warn!("Failed to unregister old settings hotkey '{}': {}", old, e);
         }
     }
-    register_settings_hotkey(handle, new)
+    Ok(())
 }
 
 fn overlay_position(app: &AppHandle) -> (f64, f64) {
