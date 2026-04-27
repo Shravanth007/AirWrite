@@ -17,6 +17,14 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 /// the previous toggle is treated as a duplicate and ignored.
 const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 
+/// Stable id for the system tray icon. We look the icon up by id from
+/// `save_settings` so a hotkey change can refresh the tooltip in place.
+const TRAY_ID: &str = "airwrite-tray";
+
+fn tray_tooltip(hotkey: &str) -> String {
+    format!("AirWrite — {} to dictate", hotkey)
+}
+
 struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
@@ -97,6 +105,13 @@ fn save_settings(
 
     if recording_changed {
         info!("Recording hotkey: {} → {}", old.hotkey, settings.hotkey);
+        // Tray tooltip mentions the recording hotkey — keep it in sync so
+        // the user doesn't see the old combo there after changing it.
+        if let Some(tray) = app.tray_by_id(TRAY_ID) {
+            if let Err(e) = tray.set_tooltip(Some(tray_tooltip(&settings.hotkey))) {
+                warn!("Could not update tray tooltip: {}", e);
+            }
+        }
     }
     if panel_changed {
         info!(
@@ -344,7 +359,7 @@ fn build_tray(app: &AppHandle, tooltip: &str) -> tauri::Result<()> {
         .items(&[&settings_item, &quit_item])
         .build()?;
 
-    TrayIconBuilder::new()
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(app.default_window_icon().cloned().ok_or_else(|| {
             tauri::Error::AssetNotFound("default_window_icon".to_string())
         })?)
@@ -377,7 +392,7 @@ fn main() {
     let initial_hotkey = settings.hotkey.clone();
     let initial_settings_hotkey = settings.settings_hotkey.clone();
     let api_key_missing = settings.groq_api_key.trim().is_empty();
-    let tray_tooltip = format!("AirWrite — {} to dictate", initial_hotkey);
+    let initial_tray_tooltip = tray_tooltip(&initial_hotkey);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -399,7 +414,7 @@ fn main() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            if let Err(e) = build_tray(&handle, &tray_tooltip) {
+            if let Err(e) = build_tray(&handle, &initial_tray_tooltip) {
                 error!("Tray init failed: {}", e);
             }
 
