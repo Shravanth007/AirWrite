@@ -5,8 +5,16 @@
 //! Uses the Windows Core Audio API (`IAudioEndpointVolume`) directly via the
 //! `windows` crate. Failure here is always non-fatal — the recording is more
 //! important than the duck.
+//!
+//! Crash-recovery: every time we duck, we drop the prior volume level into a
+//! tiny `pre_duck.txt` next to `config.json`. On clean stop we delete it.
+//! On startup the app reads the file (if present) and restores from it before
+//! anything else, so a Task-Manager kill / BSOD / panic mid-recording doesn't
+//! leave the user's master volume stuck at 15%.
 
-use log::warn;
+use log::{info, warn};
+use std::fs;
+use std::path::Path;
 use windows::core::Result as WinResult;
 use windows::Win32::Media::Audio::{
     eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
@@ -81,4 +89,68 @@ pub fn restore(level: f32) {
             warn!("Audio restore: set volume failed: {}", e);
         }
     }
+}
+
+/// Persist the pre-duck level so we can recover if the process dies before
+/// `restore` is called. Stored as an integer percentage 0–100 (one line of
+/// ASCII) — the format is intentionally trivial so a partial write is easy
+/// to spot. Best-effort: a write failure does not block recording.
+pub fn save_pending(level: f32, path: &Path) {
+    let pct = (level.clamp(0.0, 1.0) * 100.0).round() as u8;
+    if let Err(e) = fs::write(path, pct.to_string()) {
+        warn!(
+            "Could not write duck recovery file {}: {}",
+            path.display(),
+            e
+        );
+    }
+}
+
+/// Delete the recovery file. Idempotent — a missing file is fine.
+pub fn clear_pending(path: &Path) {
+    if let Err(e) = fs::remove_file(path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!(
+                "Could not delete duck recovery file {}: {}",
+                path.display(),
+                e
+            );
+        }
+    }
+}
+
+/// Startup hook: if a recovery file is present, restore the master volume
+/// from it and remove the file. Garbage / unreadable contents are logged
+/// and the file is removed anyway — leaving a corrupt file in place would
+/// keep prompting recovery forever.
+pub fn restore_pending(path: &Path) {
+    let contents = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            warn!(
+                "Could not read duck recovery file {}: {}",
+                path.display(),
+                e
+            );
+            return;
+        }
+    };
+    match contents.trim().parse::<u8>() {
+        Ok(pct) if pct <= 100 => {
+            let level = pct as f32 / 100.0;
+            info!(
+                "Recovering master volume from prior unclean exit: → {}%",
+                pct
+            );
+            restore(level);
+        }
+        Ok(pct) => warn!("Duck recovery file had invalid percentage {}, ignoring.", pct),
+        Err(e) => warn!(
+            "Garbage in duck recovery file {}: {}",
+            path.display(),
+            e
+        ),
+    }
+    let _ = fs::remove_file(path);
 }

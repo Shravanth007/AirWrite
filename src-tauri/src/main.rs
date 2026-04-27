@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use airwrite_lib::audio;
+use airwrite_lib::ducking;
 use airwrite_lib::recorder::{Recorder, RecordingState};
 use airwrite_lib::settings::Settings;
 
@@ -373,6 +374,10 @@ fn main() {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         warn!("Could not create app dir {}: {}", dir.display(), e);
     }
+    // If a previous run died mid-recording while ducked, the master volume
+    // is still at the duck level. Recover it before doing anything else, so
+    // the user gets their audio back the moment AirWrite starts.
+    ducking::restore_pending(&dir.join("pre_duck.txt"));
     let settings = Settings::load(&dir);
     let initial_hotkey = settings.hotkey.clone();
     let initial_settings_hotkey = settings.settings_hotkey.clone();
@@ -382,7 +387,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
-            recorder: Recorder::new(),
+            recorder: Recorder::new(&dir),
             settings: Mutex::new(settings),
             app_dir: dir,
             last_settings_toggle: Mutex::new(None),
