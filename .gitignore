@@ -10,3 +10,6 @@ src-tauri/gen/schemas/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local-only audit/notes
+issuestosolve.md
