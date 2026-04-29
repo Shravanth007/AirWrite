@@ -8,6 +8,7 @@ export interface Settings {
   settingsHotkey: string;
   duckingEnabled: boolean;
   duckingLevel: number;
+  clipboardRestore: boolean;
 }
 
 export interface MicDevice {

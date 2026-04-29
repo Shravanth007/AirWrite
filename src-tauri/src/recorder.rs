@@ -156,7 +156,7 @@ impl Recorder {
         let cleaned = cleanup_text(&raw_text);
         let paste_started = Instant::now();
         if !cleaned.is_empty() {
-            paste_text(&cleaned)?;
+            paste_text(&cleaned, settings.clipboard_restore)?;
         }
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();

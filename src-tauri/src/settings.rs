@@ -26,6 +26,11 @@ pub struct Settings {
     /// recording. Lower = quieter background. 0 mutes other audio entirely.
     #[serde(rename = "duckingLevel")]
     pub ducking_level: u8,
+    /// Save the user's prior clipboard text before pasting and restore it
+    /// shortly after. When false the clipboard stays overwritten (the v0.1
+    /// behaviour).
+    #[serde(rename = "clipboardRestore")]
+    pub clipboard_restore: bool,
 }
 
 impl Default for Settings {
@@ -38,6 +43,7 @@ impl Default for Settings {
             settings_hotkey: "CmdOrCtrl+Alt+S".to_string(),
             ducking_enabled: true,
             ducking_level: 15,
+            clipboard_restore: true,
         }
     }
 }

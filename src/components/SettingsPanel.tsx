@@ -25,7 +25,16 @@ const SEARCH_INDEX: Record<SectionId, string[]> = {
   "api-key": ["api", "key", "groq", "credential", "token", "secret"],
   audio: ["audio", "mic", "microphone", "input", "device", "level"],
   hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination"],
-  recording: ["recording", "mode", "toggle", "push to talk", "ptt", "behavior"],
+  recording: [
+    "recording",
+    "mode",
+    "toggle",
+    "push to talk",
+    "ptt",
+    "behavior",
+    "clipboard",
+    "restore",
+  ],
   about: ["about", "info", "version", "credits", "model", "whisper"],
 };
 
