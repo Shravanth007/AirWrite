@@ -7,6 +7,7 @@ import { ApiKeySection } from "./settings/ApiKeySection";
 import { AudioSection } from "./settings/AudioSection";
 import { HotkeySection } from "./settings/HotkeySection";
 import { RecordingSection } from "./settings/RecordingSection";
+import { HistorySection } from "./settings/HistorySection";
 import { AboutSection } from "./settings/AboutSection";
 import { ErrorBanner } from "./settings/ErrorBanner";
 import { Button } from "./settings/primitives";
@@ -24,7 +25,7 @@ function normalize(s: Settings): Settings {
 const SEARCH_INDEX: Record<SectionId, string[]> = {
   "api-key": ["api", "key", "groq", "credential", "token", "secret"],
   audio: ["audio", "mic", "microphone", "input", "device", "level"],
-  hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination"],
+  hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination", "repaste", "re-paste"],
   recording: [
     "recording",
     "mode",
@@ -38,6 +39,7 @@ const SEARCH_INDEX: Record<SectionId, string[]> = {
     "clipboard",
     "restore",
   ],
+  history: ["history", "recent", "log", "transcriptions", "past", "previous"],
   about: ["about", "info", "version", "credits", "model", "whisper"],
 };
 
@@ -183,6 +185,7 @@ export function SettingsPanel() {
                 setSettings={setSettings}
               />
             )}
+            {section === "history" && <HistorySection />}
             {section === "about" && <AboutSection />}
             <div className="h-16" />
           </div>

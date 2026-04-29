@@ -35,6 +35,10 @@ pub struct Settings {
     /// behaviour).
     #[serde(rename = "clipboardRestore")]
     pub clipboard_restore: bool,
+    /// Optional global hotkey that re-pastes the most recent transcription.
+    /// Empty string disables it.
+    #[serde(rename = "repasteHotkey")]
+    pub repaste_hotkey: String,
 }
 
 impl Default for Settings {
@@ -49,6 +53,7 @@ impl Default for Settings {
             ducking_level: 15,
             ai_cleanup_enabled: false,
             clipboard_restore: true,
+            repaste_hotkey: String::new(),
         }
     }
 }

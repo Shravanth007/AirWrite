@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::ducking;
+use crate::history::History;
 use crate::llm_cleanup;
 use crate::paste::paste_text;
 use crate::settings::Settings;
@@ -35,15 +36,24 @@ pub struct Recorder {
     /// On-disk mirror of `pre_duck_volume`. Lets us recover the master
     /// volume on next launch if the process dies mid-recording.
     duck_recovery_path: PathBuf,
+    /// Bounded transcription history. Shared with `main.rs` so Tauri
+    /// commands (`get_history`, `paste_history_entry`, `clear_history`)
+    /// see the same buffer the recorder writes into.
+    history: Arc<Mutex<History>>,
+    /// Where `history` is persisted, so we can save after each push without
+    /// shuttling the path around.
+    app_dir: PathBuf,
 }
 
 impl Recorder {
-    pub fn new(app_dir: &Path) -> Self {
+    pub fn new(app_dir: &Path, history: Arc<Mutex<History>>) -> Self {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
             pre_duck_volume: Arc::new(Mutex::new(None)),
             duck_recovery_path: app_dir.join(DUCK_RECOVERY_FILENAME),
+            history,
+            app_dir: app_dir.to_path_buf(),
         }
     }
 
@@ -118,7 +128,7 @@ impl Recorder {
         self.restore_volume();
         let _ = app.emit("recording-state", "transcribing");
 
-        let result = self.do_transcribe(settings).await;
+        let result = self.do_transcribe(settings, app).await;
 
         // Always reset state, regardless of outcome.
         *self.state.lock() = RecordingState::Ready;
@@ -135,7 +145,11 @@ impl Recorder {
         result
     }
 
-    async fn do_transcribe(&self, settings: &Settings) -> Result<String, String> {
+    async fn do_transcribe(
+        &self,
+        settings: &Settings,
+        app: &AppHandle,
+    ) -> Result<String, String> {
         // NamedTempFile auto-deletes when dropped — survives panic and crash.
         let temp = tempfile::Builder::new()
             .prefix("airwrite-")
@@ -183,6 +197,17 @@ impl Recorder {
         }
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
+
+        // Persist to history AFTER a successful paste so we never record a
+        // dictation the user never actually saw.
+        if !final_text.is_empty() {
+            let mut h = self.history.lock();
+            h.push(&final_text, audio_secs);
+            h.save(&self.app_dir);
+            drop(h);
+            // Let the Settings UI refresh its history list without polling.
+            let _ = app.emit("history-updated", ());
+        }
 
         // Real-time factor: how long Groq took relative to the audio duration.
         // <1.0 means "faster than real-time" (typical for whisper-large-v3-turbo

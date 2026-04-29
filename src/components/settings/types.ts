@@ -10,6 +10,7 @@ export interface Settings {
   duckingLevel: number;
   aiCleanupEnabled: boolean;
   clipboardRestore: boolean;
+  repasteHotkey: string;
 }
 
 export interface MicDevice {
@@ -35,4 +36,12 @@ export type SectionId =
   | "audio"
   | "hotkey"
   | "recording"
+  | "history"
   | "about";
+
+export interface HistoryEntry {
+  text: string;
+  timestamp: number;
+  duration_secs: number;
+  word_count: number;
+}

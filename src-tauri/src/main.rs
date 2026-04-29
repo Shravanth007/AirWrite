@@ -2,6 +2,8 @@
 
 use airwrite_lib::audio;
 use airwrite_lib::ducking;
+use airwrite_lib::history::{History, HistoryEntry};
+use airwrite_lib::paste::paste_text;
 use airwrite_lib::recorder::{Recorder, RecordingState};
 use airwrite_lib::settings::Settings;
 
@@ -9,6 +11,7 @@ use log::{error, info, warn};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
@@ -39,6 +42,10 @@ struct AppState {
     /// so the rebind helpers don't have to trust the OS state — if our set
     /// says an accelerator is bound, it is.
     registered_hotkeys: Mutex<HashSet<String>>,
+    /// Shared with `Recorder`. Tauri commands (`get_history`,
+    /// `paste_history_entry`, `clear_history`) read/write the same buffer
+    /// the recorder appends to after each successful dictation.
+    history: Arc<Mutex<History>>,
 }
 
 fn app_dir() -> PathBuf {
@@ -60,27 +67,41 @@ fn save_settings(
     settings: Settings,
 ) -> Result<(), String> {
     // Validate before any side effects: reject hotkey conflicts so we never
-    // try to register the same accelerator twice.
+    // try to register the same accelerator twice. With three hotkeys we
+    // check all non-empty pairs.
     let recording = settings.hotkey.trim();
     let panel = settings.settings_hotkey.trim();
+    let repaste = settings.repaste_hotkey.trim();
     if !recording.is_empty() && !panel.is_empty() && recording == panel {
         return Err(
             "Recording and Settings hotkeys can't be the same combination."
                 .to_string(),
         );
     }
+    if !recording.is_empty() && !repaste.is_empty() && recording == repaste {
+        return Err(
+            "Recording and Re-paste hotkeys can't be the same combination."
+                .to_string(),
+        );
+    }
+    if !panel.is_empty() && !repaste.is_empty() && panel == repaste {
+        return Err(
+            "Settings and Re-paste hotkeys can't be the same combination."
+                .to_string(),
+        );
+    }
 
-    // Snapshot the previous state so we can roll back hotkey rebinds if the
-    // second one fails (the first is already applied at the OS level).
+    // Snapshot the previous state so we can roll back hotkey rebinds if a
+    // later one fails (the earlier ones are already applied at the OS level).
     let old = state.settings.lock().clone();
     let recording_changed = old.hotkey != settings.hotkey;
     let panel_changed = old.settings_hotkey != settings.settings_hotkey;
+    let repaste_changed = old.repaste_hotkey != settings.repaste_hotkey;
 
-    // Apply hotkey changes FIRST. The rebind helpers register-new-then-
-    // unregister-old, so a failure on either leaves the previous hotkey
-    // intact at the OS level. If both rebinds need to run and the second
-    // fails, we explicitly roll the first one back (see below). Disk write
-    // only happens once every requested rebind has succeeded.
+    // Apply hotkey changes in order. Each rebind helper does
+    // register-new-then-unregister-old, so a failure leaves the previous
+    // hotkey intact at the OS level. If a later rebind fails we explicitly
+    // roll back the earlier ones.
     if recording_changed {
         rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey)
             .map_err(|e| format!("Could not bind recording hotkey '{}': {}", settings.hotkey, e))?;
@@ -89,8 +110,6 @@ fn save_settings(
         if let Err(e) =
             rebind_settings_hotkey(&app, &old.settings_hotkey, &settings.settings_hotkey)
         {
-            // Settings hotkey failed — undo the recording rebind so the user
-            // isn't left with a half-applied combo.
             if recording_changed {
                 if let Err(re) = rebind_recording_hotkey(&app, &settings.hotkey, &old.hotkey) {
                     error!(
@@ -105,8 +124,38 @@ fn save_settings(
             ));
         }
     }
+    if repaste_changed {
+        if let Err(e) = rebind_repaste_hotkey(&app, &old.repaste_hotkey, &settings.repaste_hotkey)
+        {
+            // Roll back panel and recording rebinds if they ran.
+            if panel_changed {
+                if let Err(re) = rebind_settings_hotkey(
+                    &app,
+                    &settings.settings_hotkey,
+                    &old.settings_hotkey,
+                ) {
+                    error!(
+                        "Recovery rebind of settings hotkey '{}' failed: {}",
+                        old.settings_hotkey, re
+                    );
+                }
+            }
+            if recording_changed {
+                if let Err(re) = rebind_recording_hotkey(&app, &settings.hotkey, &old.hotkey) {
+                    error!(
+                        "Recovery rebind of recording hotkey '{}' failed: {}",
+                        old.hotkey, re
+                    );
+                }
+            }
+            return Err(format!(
+                "Could not bind re-paste hotkey '{}': {}",
+                settings.repaste_hotkey, e
+            ));
+        }
+    }
 
-    // Both rebinds succeeded (or there were none). Update in-memory state
+    // All rebinds succeeded (or there were none). Update in-memory state
     // FIRST so the hotkey lambdas read the same recording mode/mic/etc. that
     // the OS hotkeys are now bound to. Then attempt to persist to disk —
     // a disk failure is surfaced to the user but cannot leave memory and the
@@ -131,6 +180,12 @@ fn save_settings(
         info!(
             "Settings hotkey: {} → {}",
             old.settings_hotkey, settings.settings_hotkey
+        );
+    }
+    if repaste_changed {
+        info!(
+            "Re-paste hotkey: {:?} → {:?}",
+            old.repaste_hotkey, settings.repaste_hotkey
         );
     }
     Ok(())
@@ -176,6 +231,41 @@ fn open_settings(app: AppHandle) {
 #[tauri::command]
 fn quit(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn get_history(state: State<AppState>) -> Vec<HistoryEntry> {
+    state.history.lock().entries.clone()
+}
+
+#[tauri::command]
+fn clear_history(state: State<AppState>) -> Result<(), String> {
+    {
+        let mut h = state.history.lock();
+        h.clear();
+        h.save(&state.app_dir);
+    }
+    Ok(())
+}
+
+/// Re-paste a specific history entry by index (0 = newest). Used by the
+/// History settings panel when the user clicks an entry.
+#[tauri::command]
+fn paste_history_entry(
+    app: AppHandle,
+    state: State<AppState>,
+    index: usize,
+) -> Result<(), String> {
+    let (text, restore) = {
+        let h = state.history.lock();
+        let entry = h
+            .get(index)
+            .ok_or_else(|| "History entry not found".to_string())?;
+        (entry.text.clone(), state.settings.lock().clipboard_restore)
+    };
+    paste_text(&text, restore)?;
+    let _ = app.emit("recording-state", "done");
+    Ok(())
 }
 
 /// Dispatch one hotkey event into the recorder. Branches on the user's
@@ -382,6 +472,78 @@ fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<()
     Ok(())
 }
 
+/// Re-paste the most recent history entry, on the calling thread (the
+/// async runtime). Errors are surfaced to the overlay so the user sees
+/// "no recent dictation to re-paste" if history is empty.
+fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
+    if accelerator.is_empty() {
+        return Ok(());
+    }
+    if handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .contains(accelerator)
+    {
+        return Ok(());
+    }
+    let captured = handle.clone();
+    handle
+        .global_shortcut()
+        .on_shortcut(accelerator, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            let handle = captured.clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<AppState>();
+                let (text, restore) = {
+                    let h = state.history.lock();
+                    let Some(latest) = h.latest() else {
+                        let _ = handle.emit(
+                            "recording-error",
+                            "Nothing to re-paste yet — dictate something first.",
+                        );
+                        return;
+                    };
+                    (latest.text.clone(), state.settings.lock().clipboard_restore)
+                };
+                // Run the synchronous paste off the async-runtime thread —
+                // it sleeps (PRE_PASTE_DELAY) and synthesises keystrokes.
+                let result = tauri::async_runtime::spawn_blocking(move || {
+                    paste_text(&text, restore)
+                })
+                .await
+                .unwrap_or_else(|e| Err(format!("Repaste thread panicked: {}", e)));
+                match result {
+                    Ok(()) => {
+                        info!("Hotkey: re-paste: pasted latest entry");
+                        let _ = handle.emit("recording-state", "done");
+                    }
+                    Err(e) => {
+                        error!("Re-paste failed: {}", e);
+                        let _ = handle.emit("recording-error", &e);
+                    }
+                }
+            });
+        })
+        .map_err(|e| e.to_string())?;
+    handle
+        .state::<AppState>()
+        .registered_hotkeys
+        .lock()
+        .insert(accelerator.to_string());
+    Ok(())
+}
+
+fn rebind_repaste_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
+    register_repaste_hotkey(handle, new)?;
+    if !old.is_empty() && old != new {
+        unregister_hotkey(handle, old);
+    }
+    Ok(())
+}
+
 fn overlay_position(app: &AppHandle) -> (f64, f64) {
     if let Ok(Some(m)) = app.primary_monitor() {
         let scale = m.scale_factor();
@@ -459,17 +621,21 @@ fn main() {
     let settings = Settings::load(&dir);
     let initial_hotkey = settings.hotkey.clone();
     let initial_settings_hotkey = settings.settings_hotkey.clone();
+    let initial_repaste_hotkey = settings.repaste_hotkey.clone();
     let api_key_missing = settings.groq_api_key.trim().is_empty();
     let initial_tray_tooltip = tray_tooltip(&initial_hotkey);
+
+    let history = Arc::new(Mutex::new(History::load(&dir)));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState {
-            recorder: Recorder::new(&dir),
+            recorder: Recorder::new(&dir, history.clone()),
             settings: Mutex::new(settings),
             app_dir: dir,
             last_settings_toggle: Mutex::new(None),
             registered_hotkeys: Mutex::new(HashSet::new()),
+            history,
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
@@ -479,6 +645,9 @@ fn main() {
             open_mic_privacy_settings,
             open_settings,
             quit,
+            get_history,
+            clear_history,
+            paste_history_entry,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -536,9 +705,25 @@ fn main() {
                     ),
                 );
             }
+
+            if !initial_repaste_hotkey.is_empty() {
+                info!("Registering re-paste hotkey: {}", initial_repaste_hotkey);
+                if let Err(e) = register_repaste_hotkey(&handle, &initial_repaste_hotkey) {
+                    warn!(
+                        "Failed to register re-paste hotkey '{}': {}",
+                        initial_repaste_hotkey, e
+                    );
+                    let _ = handle.emit(
+                        "recording-error",
+                        format!(
+                            "Re-paste hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                            initial_repaste_hotkey
+                        ),
+                    );
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

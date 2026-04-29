@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod cleanup;
 pub mod ducking;
+pub mod history;
 pub mod llm_cleanup;
 pub mod paste;
 pub mod recorder;

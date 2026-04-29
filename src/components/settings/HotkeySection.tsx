@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Keyboard, Mic, Settings as SettingsIcon } from "lucide-react";
+import {
+  Keyboard,
+  Mic,
+  Settings as SettingsIcon,
+  Clipboard,
+  X,
+} from "lucide-react";
 import type { Settings } from "./types";
 import { Block, Field, PageHero } from "./primitives";
 
@@ -114,7 +120,7 @@ function Chips({ combo }: { combo: string }) {
   );
 }
 
-type CaptureTarget = "recording" | "settings" | null;
+type CaptureTarget = "recording" | "settings" | "repaste" | null;
 
 interface BindingRowProps {
   Icon: typeof Mic;
@@ -123,6 +129,11 @@ interface BindingRowProps {
   combo: string;
   capturing: boolean;
   onClick: () => void;
+  /** When `clearable`, an "×" appears that wipes the binding (and emits an
+   * empty string via `onClear`). Used for optional hotkeys that may be
+   * disabled entirely. */
+  clearable?: boolean;
+  onClear?: () => void;
 }
 
 function BindingRow({
@@ -132,7 +143,10 @@ function BindingRow({
   combo,
   capturing,
   onClick,
+  clearable,
+  onClear,
 }: BindingRowProps) {
+  const empty = !combo;
   return (
     <div className="flex items-start gap-3">
       <div className="w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center shrink-0 mt-0.5">
@@ -164,12 +178,31 @@ function BindingRow({
                 Press your combination… Esc to cancel
               </span>
             </div>
+          ) : empty ? (
+            <span className="text-[12px] text-zinc-500 italic">
+              Not assigned
+            </span>
           ) : (
             <Chips combo={combo} />
           )}
-          <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-600">
-            Click to {capturing ? "cancel" : "rebind"}
-          </span>
+          <div className="flex items-center gap-3">
+            {clearable && !empty && !capturing && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClear?.();
+                }}
+                aria-label="Clear binding"
+                className="inline-flex items-center justify-center w-5 h-5 rounded-md text-zinc-600 hover:text-white hover:bg-white/[0.06] transition-colors"
+              >
+                <X className="w-3 h-3" strokeWidth={2.5} />
+              </button>
+            )}
+            <span className="text-[10.5px] uppercase tracking-[0.14em] text-zinc-600">
+              Click to {capturing ? "cancel" : empty ? "assign" : "rebind"}
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -200,6 +233,8 @@ export function HotkeySection({ settings, setSettings }: Props) {
         setSettings({ ...settings, hotkey: accel });
       } else if (capturing === "settings") {
         setSettings({ ...settings, settingsHotkey: accel });
+      } else if (capturing === "repaste") {
+        setSettings({ ...settings, repasteHotkey: accel });
       }
       setCapturing(null);
     };
@@ -209,11 +244,15 @@ export function HotkeySection({ settings, setSettings }: Props) {
       window.removeEventListener("keydown", handler, { capture: true });
   }, [capturing, settings, setSettings]);
 
-  // Visual warning if both fields end up bound to the same combo.
-  const conflict =
-    settings.hotkey &&
-    settings.settingsHotkey &&
-    settings.hotkey === settings.settingsHotkey;
+  // Visual warning if any pair of non-empty bindings collides.
+  const pairs: [string, string, string][] = [
+    [settings.hotkey, settings.settingsHotkey, "Recording and Settings"],
+    [settings.hotkey, settings.repasteHotkey, "Recording and Re-paste"],
+    [settings.settingsHotkey, settings.repasteHotkey, "Settings and Re-paste"],
+  ];
+  const conflictPair = pairs.find(
+    ([a, b]) => a && b && a === b,
+  );
 
   return (
     <div ref={captureRef}>
@@ -247,12 +286,25 @@ export function HotkeySection({ settings, setSettings }: Props) {
                 setCapturing(capturing === "settings" ? null : "settings")
               }
             />
+            <BindingRow
+              Icon={Clipboard}
+              label="Re-paste last"
+              hint="Re-pastes your most recent dictation into the focused window. Optional — leave unassigned to disable."
+              combo={settings.repasteHotkey}
+              capturing={capturing === "repaste"}
+              onClick={() =>
+                setCapturing(capturing === "repaste" ? null : "repaste")
+              }
+              clearable
+              onClear={() => setSettings({ ...settings, repasteHotkey: "" })}
+            />
           </div>
         </Field>
 
-        {conflict && (
+        {conflictPair && (
           <p className="mt-4 text-[11.5px] text-amber-400">
-            Both hotkeys are bound to the same combination — assign different keys.
+            {conflictPair[2]} hotkeys are bound to the same combination — assign
+            different keys.
           </p>
         )}
       </Block>
