@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::ducking;
+use crate::llm_cleanup;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transcribe_groq;
@@ -154,9 +155,31 @@ impl Recorder {
         // `temp` drops at end of scope → file is removed.
 
         let cleaned = cleanup_text(&raw_text);
+
+        // Optional LLM polish. If it fails for any reason — network, HTTP
+        // error, empty response — we fall back to the plain cleanup result
+        // so the user never loses a dictation just because the polish step
+        // had a bad day.
+        let (final_text, llm_secs) = if settings.ai_cleanup_enabled && !cleaned.is_empty() {
+            let llm_started = Instant::now();
+            match llm_cleanup::cleanup_with_llm(&api_key, &cleaned).await {
+                Ok(polished) => {
+                    let secs = llm_started.elapsed().as_secs_f32();
+                    info!("LLM cleanup ({:.2}s): {:?} → {:?}", secs, cleaned, polished);
+                    (polished, Some(secs))
+                }
+                Err(e) => {
+                    warn!("LLM cleanup failed, using raw transcription: {}", e);
+                    (cleaned, None)
+                }
+            }
+        } else {
+            (cleaned, None)
+        };
+
         let paste_started = Instant::now();
-        if !cleaned.is_empty() {
-            paste_text(&cleaned, settings.clipboard_restore)?;
+        if !final_text.is_empty() {
+            paste_text(&final_text, settings.clipboard_restore)?;
         }
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
@@ -166,16 +189,28 @@ impl Recorder {
         // on Groq, often 0.05–0.20). >1.0 means the network or the model is
         // bottlenecking.
         let rtf = if audio_secs > 0.0 { api_secs / audio_secs } else { 0.0 };
-        info!(
-            "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
-            api_secs,
-            rtf,
-            audio_secs,
-            upload_size as f32 / 1024.0,
-            paste_secs,
-            total_secs,
-        );
+        match llm_secs {
+            Some(secs) => info!(
+                "Speed: groq={:.2}s rtf={:.2}x · llm={:.2}s · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                api_secs,
+                rtf,
+                secs,
+                audio_secs,
+                upload_size as f32 / 1024.0,
+                paste_secs,
+                total_secs,
+            ),
+            None => info!(
+                "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                api_secs,
+                rtf,
+                audio_secs,
+                upload_size as f32 / 1024.0,
+                paste_secs,
+                total_secs,
+            ),
+        }
 
-        Ok(cleaned)
+        Ok(final_text)
     }
 }

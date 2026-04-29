@@ -1,4 +1,4 @@
-import { Repeat, Hand, Sparkles, Clipboard } from "lucide-react";
+import { Repeat, Hand, Sparkles, Wand2, Clipboard } from "lucide-react";
 import type { Settings, RecordingMode } from "./types";
 import { Block, Field, PageHero, Pill } from "./primitives";
 
@@ -101,6 +101,16 @@ export function RecordingSection({ settings, setSettings }: Props) {
       <Block className="mt-8">
         <Field label="Post-processing">
           <ToggleRow
+            Icon={Wand2}
+            title="AI cleanup"
+            description="Polishes grammar and punctuation, drops 'um' and 'uh', and tightens disfluencies. Adds about half a second to each dictation."
+            badge="Beta"
+            checked={settings.aiCleanupEnabled}
+            onChange={(v) =>
+              setSettings({ ...settings, aiCleanupEnabled: v })
+            }
+          />
+          <ToggleRow
             Icon={Clipboard}
             title="Restore previous clipboard"
             description="Snapshots whatever was on your clipboard before each dictation and puts it back a moment after pasting. Off = the v0.1 behaviour (clipboard stays overwritten)."
@@ -116,7 +126,7 @@ export function RecordingSection({ settings, setSettings }: Props) {
 }
 
 interface ToggleRowProps {
-  Icon: typeof Clipboard;
+  Icon: typeof Wand2;
   title: string;
   description: string;
   checked: boolean;
