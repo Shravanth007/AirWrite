@@ -43,8 +43,9 @@ struct AppState {
     /// says an accelerator is bound, it is.
     registered_hotkeys: Mutex<HashSet<String>>,
     /// Shared with `Recorder`. Tauri commands (`get_history`,
-    /// `paste_history_entry`, `clear_history`) read/write the same buffer
-    /// the recorder appends to after each successful dictation.
+    /// `clear_history`) read/write the same buffer the recorder appends to
+    /// after each successful dictation; the global re-paste hotkey reads the
+    /// latest entry directly from it.
     history: Arc<Mutex<History>>,
 }
 
@@ -245,26 +246,6 @@ fn clear_history(state: State<AppState>) -> Result<(), String> {
         h.clear();
         h.save(&state.app_dir);
     }
-    Ok(())
-}
-
-/// Re-paste a specific history entry by index (0 = newest). Used by the
-/// History settings panel when the user clicks an entry.
-#[tauri::command]
-fn paste_history_entry(
-    app: AppHandle,
-    state: State<AppState>,
-    index: usize,
-) -> Result<(), String> {
-    let (text, restore) = {
-        let h = state.history.lock();
-        let entry = h
-            .get(index)
-            .ok_or_else(|| "History entry not found".to_string())?;
-        (entry.text.clone(), state.settings.lock().clipboard_restore)
-    };
-    paste_text(&text, restore)?;
-    let _ = app.emit("recording-state", "done");
     Ok(())
 }
 
@@ -647,7 +628,6 @@ fn main() {
             quit,
             get_history,
             clear_history,
-            paste_history_entry,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

@@ -1,9 +1,9 @@
 //! Bounded transcription history persisted next to `config.json`.
 //!
-//! Stores the most recent N successful dictations so the user can re-paste
-//! one (when the original paste landed in the wrong window) or scan what
-//! they've said today. Capped at 20 entries on disk; older ones are
-//! evicted on each `push`.
+//! Stores the most recent N successful dictations so the user can copy any
+//! one back to the clipboard, or re-paste the latest into the focused
+//! window via the global Re-paste hotkey. Capped at 20 entries on disk;
+//! older ones are evicted on each `push`.
 //!
 //! Failure to read or write the file is non-fatal: we'd rather lose history
 //! than block a recording. Corrupt files are replaced silently with an empty

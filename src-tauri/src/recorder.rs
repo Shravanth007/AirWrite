@@ -37,8 +37,8 @@ pub struct Recorder {
     /// volume on next launch if the process dies mid-recording.
     duck_recovery_path: PathBuf,
     /// Bounded transcription history. Shared with `main.rs` so Tauri
-    /// commands (`get_history`, `paste_history_entry`, `clear_history`)
-    /// see the same buffer the recorder writes into.
+    /// commands (`get_history`, `clear_history`) and the global re-paste
+    /// hotkey see the same buffer the recorder writes into.
     history: Arc<Mutex<History>>,
     /// Where `history` is persisted, so we can save after each push without
     /// shuttling the path around.
