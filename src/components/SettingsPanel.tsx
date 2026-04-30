@@ -19,6 +19,7 @@ function normalize(s: Settings): Settings {
     groqApiKey: s.groqApiKey.trim(),
     hotkey: s.hotkey.trim(),
     settingsHotkey: s.settingsHotkey.trim(),
+    repasteHotkey: s.repasteHotkey.trim(),
   };
 }
 
