@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { History as HistoryIcon, Clipboard, Trash2 } from "lucide-react";
+import { History as HistoryIcon, Clipboard, Check, Trash2 } from "lucide-react";
 import type { HistoryEntry } from "./types";
 import { Block, Button, PageHero } from "./primitives";
 
@@ -35,7 +35,7 @@ export function HistorySection() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [pastingIndex, setPastingIndex] = useState<number | null>(null);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
   // Force re-render of relative timestamps every 30s so "just now" doesn't
   // get stuck while the panel sits open.
@@ -61,17 +61,14 @@ export function HistorySection() {
     };
   }, []);
 
-  async function paste(index: number) {
-    setPastingIndex(index);
+  async function copy(index: number, text: string) {
     setActionError("");
     try {
-      await invoke("paste_history_entry", { index });
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((cur) => (cur === index ? null : cur)), 1200);
     } catch (e) {
       setActionError(String(e));
-    } finally {
-      // Brief delay so the user sees the "Pasting…" state register before
-      // the row snaps back, even on a fast machine.
-      setTimeout(() => setPastingIndex(null), 200);
     }
   }
 
@@ -92,7 +89,7 @@ export function HistorySection() {
       <PageHero
         eyebrow="Recent"
         title="History"
-        description="The last 20 successful dictations. Click any entry to re-paste it into the currently focused window — handy when paste landed in the wrong place."
+        description="The last 20 successful dictations. Click any entry to copy it to the clipboard. To re-paste your most recent dictation into the focused window, set a Re-paste hotkey in Hotkeys."
         Icon={HistoryIcon}
       />
 
@@ -146,8 +143,8 @@ export function HistorySection() {
               <HistoryRow
                 key={`${entry.timestamp}-${i}`}
                 entry={entry}
-                pasting={pastingIndex === i}
-                onPaste={() => paste(i)}
+                copied={copiedIndex === i}
+                onCopy={() => copy(i, entry.text)}
               />
             ))}
           </ul>
@@ -163,20 +160,19 @@ export function HistorySection() {
 
 function HistoryRow({
   entry,
-  pasting,
-  onPaste,
+  copied,
+  onCopy,
 }: {
   entry: HistoryEntry;
-  pasting: boolean;
-  onPaste: () => void;
+  copied: boolean;
+  onCopy: () => void;
 }) {
   return (
     <li>
       <button
         type="button"
-        onClick={onPaste}
-        disabled={pasting}
-        className="group w-full text-left rounded-xl border border-white/[0.06] hover:border-white/15 bg-transparent hover:bg-white/[0.02] transition-all p-3.5 disabled:opacity-60 disabled:cursor-wait"
+        onClick={onCopy}
+        className="group w-full text-left rounded-xl border border-white/[0.06] hover:border-white/15 bg-transparent hover:bg-white/[0.02] transition-all p-3.5"
       >
         <div className="flex items-start gap-3">
           <div className="flex-1 min-w-0">
@@ -193,9 +189,20 @@ function HistoryRow({
               <span>{formatDuration(entry.duration_secs)}</span>
             </div>
           </div>
-          <div className="shrink-0 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] text-zinc-600 group-hover:text-zinc-300 transition-colors">
-            <Clipboard className="w-3 h-3" strokeWidth={2} />
-            {pasting ? "Pasting" : "Re-paste"}
+          <div
+            className={
+              "shrink-0 inline-flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.14em] transition-colors " +
+              (copied
+                ? "text-emerald-400"
+                : "text-zinc-600 group-hover:text-zinc-300")
+            }
+          >
+            {copied ? (
+              <Check className="w-3 h-3" strokeWidth={2.5} />
+            ) : (
+              <Clipboard className="w-3 h-3" strokeWidth={2} />
+            )}
+            {copied ? "Copied" : "Copy"}
           </div>
         </div>
       </button>
