@@ -10,6 +10,7 @@ import {
   ExternalLink,
   LifeBuoy,
   LogOut,
+  History as HistoryIcon,
 } from "lucide-react";
 import type { SectionId, Settings } from "./types";
 
@@ -24,6 +25,7 @@ const PRIMARY: NavItem[] = [
   { id: "audio", label: "Audio", Icon: Mic2 },
   { id: "hotkey", label: "Hotkey", Icon: Keyboard },
   { id: "recording", label: "Recording", Icon: Sparkles },
+  { id: "history", label: "History", Icon: HistoryIcon },
   { id: "about", label: "About", Icon: Info },
 ];
 

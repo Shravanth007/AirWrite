@@ -8,6 +8,8 @@ use tauri::{AppHandle, Emitter};
 use crate::audio::AudioRecorder;
 use crate::cleanup::cleanup_text;
 use crate::ducking;
+use crate::history::History;
+use crate::llm_cleanup;
 use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transcribe_groq;
@@ -34,15 +36,24 @@ pub struct Recorder {
     /// On-disk mirror of `pre_duck_volume`. Lets us recover the master
     /// volume on next launch if the process dies mid-recording.
     duck_recovery_path: PathBuf,
+    /// Bounded transcription history. Shared with `main.rs` so Tauri
+    /// commands (`get_history`, `clear_history`) and the global re-paste
+    /// hotkey see the same buffer the recorder writes into.
+    history: Arc<Mutex<History>>,
+    /// Where `history` is persisted, so we can save after each push without
+    /// shuttling the path around.
+    app_dir: PathBuf,
 }
 
 impl Recorder {
-    pub fn new(app_dir: &Path) -> Self {
+    pub fn new(app_dir: &Path, history: Arc<Mutex<History>>) -> Self {
         Self {
             state: Arc::new(Mutex::new(RecordingState::Ready)),
             audio_recorder: Arc::new(Mutex::new(AudioRecorder::new())),
             pre_duck_volume: Arc::new(Mutex::new(None)),
             duck_recovery_path: app_dir.join(DUCK_RECOVERY_FILENAME),
+            history,
+            app_dir: app_dir.to_path_buf(),
         }
     }
 
@@ -117,7 +128,7 @@ impl Recorder {
         self.restore_volume();
         let _ = app.emit("recording-state", "transcribing");
 
-        let result = self.do_transcribe(settings).await;
+        let result = self.do_transcribe(settings, app).await;
 
         // Always reset state, regardless of outcome.
         *self.state.lock() = RecordingState::Ready;
@@ -134,7 +145,11 @@ impl Recorder {
         result
     }
 
-    async fn do_transcribe(&self, settings: &Settings) -> Result<String, String> {
+    async fn do_transcribe(
+        &self,
+        settings: &Settings,
+        app: &AppHandle,
+    ) -> Result<String, String> {
         // NamedTempFile auto-deletes when dropped — survives panic and crash.
         let temp = tempfile::Builder::new()
             .prefix("airwrite-")
@@ -154,28 +169,73 @@ impl Recorder {
         // `temp` drops at end of scope → file is removed.
 
         let cleaned = cleanup_text(&raw_text);
+
+        // Optional LLM polish. If it fails for any reason — network, HTTP
+        // error, empty response — we fall back to the plain cleanup result
+        // so the user never loses a dictation just because the polish step
+        // had a bad day.
+        let (final_text, llm_secs) = if settings.ai_cleanup_enabled && !cleaned.is_empty() {
+            let llm_started = Instant::now();
+            match llm_cleanup::cleanup_with_llm(&api_key, &cleaned).await {
+                Ok(polished) => {
+                    let secs = llm_started.elapsed().as_secs_f32();
+                    info!("LLM cleanup ({:.2}s): {:?} → {:?}", secs, cleaned, polished);
+                    (polished, Some(secs))
+                }
+                Err(e) => {
+                    warn!("LLM cleanup failed, using raw transcription: {}", e);
+                    (cleaned, None)
+                }
+            }
+        } else {
+            (cleaned, None)
+        };
+
         let paste_started = Instant::now();
-        if !cleaned.is_empty() {
-            paste_text(&cleaned)?;
+        if !final_text.is_empty() {
+            paste_text(&final_text, settings.clipboard_restore)?;
         }
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
+
+        // Persist to history AFTER a successful paste so we never record a
+        // dictation the user never actually saw.
+        if !final_text.is_empty() {
+            let mut h = self.history.lock();
+            h.push(&final_text, audio_secs);
+            h.save(&self.app_dir);
+            drop(h);
+            // Let the Settings UI refresh its history list without polling.
+            let _ = app.emit("history-updated", ());
+        }
 
         // Real-time factor: how long Groq took relative to the audio duration.
         // <1.0 means "faster than real-time" (typical for whisper-large-v3-turbo
         // on Groq, often 0.05–0.20). >1.0 means the network or the model is
         // bottlenecking.
         let rtf = if audio_secs > 0.0 { api_secs / audio_secs } else { 0.0 };
-        info!(
-            "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
-            api_secs,
-            rtf,
-            audio_secs,
-            upload_size as f32 / 1024.0,
-            paste_secs,
-            total_secs,
-        );
+        match llm_secs {
+            Some(secs) => info!(
+                "Speed: groq={:.2}s rtf={:.2}x · llm={:.2}s · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                api_secs,
+                rtf,
+                secs,
+                audio_secs,
+                upload_size as f32 / 1024.0,
+                paste_secs,
+                total_secs,
+            ),
+            None => info!(
+                "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                api_secs,
+                rtf,
+                audio_secs,
+                upload_size as f32 / 1024.0,
+                paste_secs,
+                total_secs,
+            ),
+        }
 
-        Ok(cleaned)
+        Ok(final_text)
     }
 }

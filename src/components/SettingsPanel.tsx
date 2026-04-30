@@ -7,6 +7,7 @@ import { ApiKeySection } from "./settings/ApiKeySection";
 import { AudioSection } from "./settings/AudioSection";
 import { HotkeySection } from "./settings/HotkeySection";
 import { RecordingSection } from "./settings/RecordingSection";
+import { HistorySection } from "./settings/HistorySection";
 import { AboutSection } from "./settings/AboutSection";
 import { ErrorBanner } from "./settings/ErrorBanner";
 import { Button } from "./settings/primitives";
@@ -18,14 +19,28 @@ function normalize(s: Settings): Settings {
     groqApiKey: s.groqApiKey.trim(),
     hotkey: s.hotkey.trim(),
     settingsHotkey: s.settingsHotkey.trim(),
+    repasteHotkey: s.repasteHotkey.trim(),
   };
 }
 
 const SEARCH_INDEX: Record<SectionId, string[]> = {
   "api-key": ["api", "key", "groq", "credential", "token", "secret"],
   audio: ["audio", "mic", "microphone", "input", "device", "level"],
-  hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination"],
-  recording: ["recording", "mode", "toggle", "push to talk", "ptt", "behavior"],
+  hotkey: ["hotkey", "shortcut", "key", "binding", "trigger", "combination", "repaste", "re-paste"],
+  recording: [
+    "recording",
+    "mode",
+    "toggle",
+    "push to talk",
+    "ptt",
+    "behavior",
+    "ai",
+    "cleanup",
+    "polish",
+    "clipboard",
+    "restore",
+  ],
+  history: ["history", "recent", "log", "transcriptions", "past", "previous"],
   about: ["about", "info", "version", "credits", "model", "whisper"],
 };
 
@@ -171,6 +186,7 @@ export function SettingsPanel() {
                 setSettings={setSettings}
               />
             )}
+            {section === "history" && <HistorySection />}
             {section === "about" && <AboutSection />}
             <div className="h-16" />
           </div>

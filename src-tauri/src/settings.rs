@@ -26,6 +26,19 @@ pub struct Settings {
     /// recording. Lower = quieter background. 0 mutes other audio entirely.
     #[serde(rename = "duckingLevel")]
     pub ducking_level: u8,
+    /// Run the raw Whisper transcription through Groq's Llama model for a
+    /// grammar/punctuation polish before pasting. Adds ~0.3–1.0s of latency.
+    #[serde(rename = "aiCleanupEnabled")]
+    pub ai_cleanup_enabled: bool,
+    /// Save the user's prior clipboard text before pasting and restore it
+    /// shortly after. When false the clipboard stays overwritten (the v0.1
+    /// behaviour).
+    #[serde(rename = "clipboardRestore")]
+    pub clipboard_restore: bool,
+    /// Optional global hotkey that re-pastes the most recent transcription.
+    /// Empty string disables it.
+    #[serde(rename = "repasteHotkey")]
+    pub repaste_hotkey: String,
 }
 
 impl Default for Settings {
@@ -38,6 +51,9 @@ impl Default for Settings {
             settings_hotkey: "CmdOrCtrl+Alt+S".to_string(),
             ducking_enabled: true,
             ducking_level: 15,
+            ai_cleanup_enabled: false,
+            clipboard_restore: true,
+            repaste_hotkey: String::new(),
         }
     }
 }
