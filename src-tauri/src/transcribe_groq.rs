@@ -1,4 +1,4 @@
-use reqwest::multipart;
+﻿use reqwest::multipart;
 use std::path::Path;
 
 const GROQ_ENDPOINT: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -39,8 +39,6 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String,
 
     let status = response.status();
     if !status.is_success() {
-        // Don't echo the raw body — it may contain the request payload (and
-        // therefore the bearer token) in some proxy error pages.
         let groq_message = response
             .text()
             .await
@@ -61,19 +59,14 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String,
         .ok_or_else(|| "No 'text' field in Groq response".to_string())
 }
 
-/// Convert a reqwest transport error into something a user can act on.
-/// The raw `reqwest::Error` Display is a wall of nested causes — useful in
-/// the log but not on screen.
 fn classify_request_error(e: reqwest::Error) -> String {
     let raw = e.to_string();
     log::warn!("Network error during transcribe: {}", raw);
 
     if e.is_timeout() {
-        return "Request timed out. Groq might be slow right now — try again.".to_string();
+        return "Request timed out. Groq might be slow right now â€” try again.".to_string();
     }
     if e.is_connect() {
-        // DNS failure usually means no internet at all; bare connect failure
-        // means the route is broken (firewall, captive portal, etc.).
         if raw.contains("dns") || raw.contains("lookup") || raw.contains("resolve") {
             return "Can't reach api.groq.com. You may be offline or behind a firewall.".to_string();
         }
@@ -85,18 +78,14 @@ fn classify_request_error(e: reqwest::Error) -> String {
     "Network error while contacting Groq. Try again in a moment.".to_string()
 }
 
-/// Map an HTTP status into an actionable message. We prefer Groq's own error
-/// message when it's present and short enough; otherwise fall back to a
-/// hand-written line per status class.
 fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
     match status {
-        401 | 403 => "Your Groq API key was rejected. Open Settings → API key to update it.".to_string(),
+        401 | 403 => "Your Groq API key was rejected. Open Settings â†’ API key to update it.".to_string(),
         408 => "Groq took too long to respond. Try again.".to_string(),
         413 => "Recording is too long for Groq. Keep dictations under ~25 MB of audio.".to_string(),
         429 => "Too many requests. Wait a few seconds and try again.".to_string(),
         500..=599 => "Groq is having issues right now. Try again in a moment.".to_string(),
         _ => {
-            // Unexpected status — surface Groq's own message if present.
             if let Some(m) = groq_message.filter(|m| !m.is_empty() && m.len() < 200) {
                 format!("Groq returned {}: {}", status, m)
             } else {
@@ -106,13 +95,9 @@ fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
     }
 }
 
-/// Reject keys that contain characters which would either break the
-/// Authorization header (CR/LF) or are obviously not a Groq key. Keeps the
-/// error path human-readable instead of producing a `reqwest` "invalid header"
-/// failure that users can't action.
 fn validate_api_key(key: &str) -> Result<(), String> {
     if key.len() > 256 {
-        return Err("API key looks too long — copy/paste error?".to_string());
+        return Err("API key looks too long â€” copy/paste error?".to_string());
     }
     if key.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return Err("API key contains whitespace or control characters.".to_string());

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { History as HistoryIcon, Clipboard, Check, Trash2 } from "lucide-react";
@@ -37,8 +37,6 @@ export function HistorySection() {
   const [actionError, setActionError] = useState("");
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
-  // Force re-render of relative timestamps every 30s so "just now" doesn't
-  // get stuck while the panel sits open.
   const [, setNowTick] = useState(0);
 
   async function refresh() {
@@ -181,11 +179,11 @@ function HistoryRow({
             </p>
             <div className="mt-2 flex items-center gap-2 text-[10.5px] text-zinc-600 font-mono">
               <span>{formatAge(entry.timestamp)}</span>
-              <span className="text-zinc-700">·</span>
+              <span className="text-zinc-700">Â·</span>
               <span>
                 {entry.word_count} {entry.word_count === 1 ? "word" : "words"}
               </span>
-              <span className="text-zinc-700">·</span>
+              <span className="text-zinc-700">Â·</span>
               <span>{formatDuration(entry.duration_secs)}</span>
             </div>
           </div>

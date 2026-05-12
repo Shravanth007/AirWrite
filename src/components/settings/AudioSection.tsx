@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Activity,
@@ -25,8 +25,6 @@ interface Props {
   refreshMics: () => Promise<void>;
 }
 
-// Functional colors only — these communicate signal health, so we keep them
-// even in a monochrome shell.
 function levelTone(peak: number) {
   if (peak < 0.001) return "text-red-400";
   if (peak < 0.005) return "text-orange-300";
@@ -161,7 +159,7 @@ export function AudioSection({
                 {result.device}
               </span>
               <span className="shrink-0 font-mono">
-                {result.sample_rate} Hz · {result.channels}ch · {result.format}
+                {result.sample_rate} Hz Â· {result.channels}ch Â· {result.format}
               </span>
             </div>
             <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.06]">

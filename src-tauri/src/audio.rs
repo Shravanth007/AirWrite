@@ -1,4 +1,4 @@
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+﻿use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat};
 use hound::{WavSpec, WavWriter};
 use log::{debug, error, info, warn};
@@ -7,10 +7,7 @@ use std::path::Path;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
-/// Peak below this threshold is treated as "no real audio" — Whisper
-/// hallucinates phrases like "Thank you" on near-silent input, so we surface
-/// a clean error instead of pasting nonsense.
-const SILENCE_PEAK_THRESHOLD: f32 = 0.005; // ≈ -46 dBFS
+const SILENCE_PEAK_THRESHOLD: f32 = 0.005;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MicDevice {
@@ -39,10 +36,6 @@ pub fn list_microphones() -> Vec<MicDevice> {
     devices
 }
 
-/// Live cpal stream + the bookkeeping needed to interpret what it produced.
-/// This struct never crosses the audio worker thread boundary — its `Drop`
-/// (which releases the WASAPI handle) always runs on the same thread that
-/// built the stream.
 struct ActiveStream {
     _stream: cpal::Stream,
     samples: Arc<Mutex<Vec<f32>>>,
@@ -51,8 +44,6 @@ struct ActiveStream {
     sample_format: SampleFormat,
 }
 
-/// Result of stopping a recording. Public so `test_microphone` can inspect
-/// raw samples without forcing them through the WAV-writer path.
 pub struct DrainedAudio {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
@@ -71,10 +62,6 @@ enum AudioCommand {
     Shutdown,
 }
 
-/// Handle to the dedicated audio worker thread. The thread owns the
-/// `cpal::Stream` so build, play, and drop all happen on the same OS thread —
-/// WASAPI's COM-affine handles require this. Methods here only send commands
-/// down a channel and wait for replies.
 pub struct AudioRecorder {
     cmd_tx: Sender<AudioCommand>,
 }
@@ -87,8 +74,6 @@ impl Default for AudioRecorder {
 
 impl Drop for AudioRecorder {
     fn drop(&mut self) {
-        // Best-effort: tell the worker to exit. If it's already gone, the
-        // send fails silently.
         let _ = self.cmd_tx.send(AudioCommand::Shutdown);
     }
 }
@@ -117,8 +102,6 @@ impl AudioRecorder {
         Ok(())
     }
 
-    /// Stop the active stream and return raw captured samples. Used by the
-    /// mic-test path, and internally by `stop_and_save`.
     pub fn stop_and_drain(&mut self) -> Result<DrainedAudio, String> {
         let (reply_tx, reply_rx) = channel();
         self.cmd_tx
@@ -129,9 +112,6 @@ impl AudioRecorder {
             .map_err(|_| "Audio worker dropped reply".to_string())?
     }
 
-    /// Stop the active stream, write the captured audio to `output_path`,
-    /// and return the duration of the recording in seconds (so callers can
-    /// reason about real-time-factor against the transcription latency).
     pub fn stop_and_save(&mut self, output_path: &Path) -> Result<f32, String> {
         let drained = self.stop_and_drain()?;
 
@@ -158,7 +138,7 @@ impl AudioRecorder {
         );
 
         if peak < SILENCE_PEAK_THRESHOLD {
-            warn!("Audio peak {:.5} below silence threshold — refusing to send.", peak);
+            warn!("Audio peak {:.5} below silence threshold â€” refusing to send.", peak);
             return Err(format!(
                 "Microphone captured silence (peak {:.4}). \
                  Check Windows mic permissions, mute switch, and that the right input is selected in Settings.",
@@ -217,9 +197,6 @@ fn worker_loop(rx: Receiver<AudioCommand>) {
                 let sample_rate = a.sample_rate;
                 let channels = a.channels;
                 let sample_format = a.sample_format;
-                // `a` (and therefore the cpal::Stream inside it) is dropped
-                // here, on this worker thread — the only place it's ever
-                // touched after construction.
                 drop(a);
                 debug!("Audio recording stopped");
                 let _ = reply.send(Ok(DrainedAudio {
@@ -264,11 +241,6 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
     let samples_for_cb = samples.clone();
     let err_fn = |e: cpal::StreamError| error!("Audio stream error: {}", e);
 
-    // CPAL's typed `build_input_stream::<T>` uses the closure's element type
-    // to negotiate the format with the OS. Picking the wrong T silently
-    // produces garbage on some Windows drivers, which is what causes
-    // Whisper to return "Thank you" on otherwise-working systems. Branch
-    // on the real format reported by the device.
     let stream = match sample_format {
         SampleFormat::F32 => device.build_input_stream(
             &config,
@@ -347,17 +319,13 @@ pub struct MicTestResult {
     pub verdict: String,
 }
 
-/// Run a short capture and report level metrics. Used by Settings → "Test mic"
-/// so the user can confirm Windows is actually feeding audio to the app.
 pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult, String> {
     let mut recorder = AudioRecorder::new();
     recorder.start(mic_name)?;
     std::thread::sleep(std::time::Duration::from_millis(duration_ms as u64));
     let drained = recorder.stop_and_drain()?;
-    drop(recorder); // worker thread shuts down on the next recv
+    drop(recorder);
 
-    // Friendly device name — best effort. On "default" we resolve to the
-    // current default input; otherwise we just echo the requested name.
     let device_label = if mic_name == "default" {
         cpal::default_host()
             .default_input_device()
@@ -380,13 +348,13 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
     let verdict = if mono.is_empty() {
         "No samples captured. Stream did not produce data.".to_string()
     } else if peak < 0.001 {
-        "SILENT — Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.".to_string()
+        "SILENT â€” Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.".to_string()
     } else if peak < SILENCE_PEAK_THRESHOLD {
-        "Very quiet — speak louder or check Levels in Windows sound panel.".to_string()
+        "Very quiet â€” speak louder or check Levels in Windows sound panel.".to_string()
     } else if peak < 0.05 {
         "Audio detected but quiet. Speech may transcribe poorly. Boost mic Level in Windows.".to_string()
     } else {
-        "Healthy signal — mic is working.".to_string()
+        "Healthy signal â€” mic is working.".to_string()
     };
 
     Ok(MicTestResult {
@@ -403,8 +371,6 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
     })
 }
 
-/// Linear-interpolation resampler. Naive — no anti-aliasing filter — but
-/// adequate for speech up to ~4 kHz, which is all Whisper cares about.
 fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate {
         return samples.to_vec();

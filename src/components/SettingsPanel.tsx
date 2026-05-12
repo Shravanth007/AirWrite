@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 
@@ -88,8 +88,6 @@ export function SettingsPanel() {
     };
   }, []);
 
-  // Live-jump to the section whose keywords match what the user typed.
-  // ("/" focusing the search field is handled inside Sidebar.)
   useEffect(() => {
     const id = matchSearch(query);
     if (id) setSection(id);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   Mic,
@@ -18,22 +18,15 @@ const MODIFIER_KEYS = new Set([
   "OS",
 ]);
 
-// Map a `KeyboardEvent.code` to the keycode token Tauri's global-shortcut
-// parser accepts. Tauri uses keyboard-types `Code` names (Comma, Period,
-// Slash, ...) rather than printable characters, so capturing `e.key` directly
-// produces strings like `,` that fail to register at runtime.
 function codeToTauri(code: string, key: string): string | null {
-  if (/^Key[A-Z]$/.test(code)) return code.slice(3); // KeyA -> A
-  if (/^Digit\d$/.test(code)) return code.slice(5); // Digit5 -> 5
-  if (/^F\d{1,2}$/.test(code)) return code; // F1..F12
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3);
+  if (/^Digit\d$/.test(code)) return code.slice(5);
+  if (/^F\d{1,2}$/.test(code)) return code;
   if (code === "Space") return "Space";
   if (code === "Enter") return "Enter";
   if (code === "Tab") return "Tab";
   if (code === "Backspace") return "Backspace";
   if (code.startsWith("Arrow")) return code.replace("Arrow", "");
-  // Numpad and punctuation come through as their Code name verbatim
-  // (Comma, Period, Slash, Semicolon, Quote, Backquote, Minus, Equal,
-  //  BracketLeft, BracketRight, Backslash, Numpad0..9).
   if (
     /^(Comma|Period|Slash|Semicolon|Quote|Backquote|Minus|Equal|BracketLeft|BracketRight|Backslash|IntlBackslash|Numpad\d|NumpadAdd|NumpadSubtract|NumpadMultiply|NumpadDivide|NumpadDecimal|NumpadEnter|PageUp|PageDown|Home|End|Insert|Delete)$/.test(
       code,
@@ -41,7 +34,6 @@ function codeToTauri(code: string, key: string): string | null {
   ) {
     return code;
   }
-  // Fallback: if `key` is a single printable letter, accept it.
   if (key.length === 1 && /[A-Za-z]/.test(key)) return key.toUpperCase();
   return null;
 }
@@ -60,7 +52,6 @@ function formatAccelerator(e: KeyboardEvent): string | null {
   return parts.join("+");
 }
 
-// Prettify Tauri code names for display in the chips (storage stays raw).
 const KEY_DISPLAY: Record<string, string> = {
   CmdOrCtrl: "Ctrl",
   Cmd: "Ctrl",
@@ -75,14 +66,14 @@ const KEY_DISPLAY: Record<string, string> = {
   BracketLeft: "[",
   BracketRight: "]",
   Backslash: "\\",
-  Up: "↑",
-  Down: "↓",
-  Left: "←",
-  Right: "→",
+  Up: "â†‘",
+  Down: "â†“",
+  Left: "â†",
+  Right: "â†’",
   Space: "Space",
-  Enter: "↵",
+  Enter: "â†µ",
   Tab: "Tab",
-  Backspace: "⌫",
+  Backspace: "âŒ«",
   Delete: "Del",
   Insert: "Ins",
   Home: "Home",
@@ -90,15 +81,14 @@ const KEY_DISPLAY: Record<string, string> = {
   PageUp: "PgUp",
   PageDown: "PgDn",
   NumpadAdd: "Num +",
-  NumpadSubtract: "Num −",
-  NumpadMultiply: "Num ×",
-  NumpadDivide: "Num ÷",
+  NumpadSubtract: "Num âˆ’",
+  NumpadMultiply: "Num Ã—",
+  NumpadDivide: "Num Ã·",
   NumpadDecimal: "Num .",
-  NumpadEnter: "Num ↵",
+  NumpadEnter: "Num â†µ",
 };
 const displayKey = (k: string) => {
   if (k in KEY_DISPLAY) return KEY_DISPLAY[k];
-  // "Numpad0".."Numpad9" → "Num 0".."Num 9"
   if (/^Numpad\d$/.test(k)) return `Num ${k.slice(6)}`;
   return k;
 };
@@ -129,9 +119,6 @@ interface BindingRowProps {
   combo: string;
   capturing: boolean;
   onClick: () => void;
-  /** When `clearable`, an "×" appears that wipes the binding (and emits an
-   * empty string via `onClear`). Used for optional hotkeys that may be
-   * disabled entirely. */
   clearable?: boolean;
   onClear?: () => void;
 }
@@ -175,7 +162,7 @@ function BindingRow({
                 <span className="relative w-2 h-2 rounded-full bg-white" />
               </span>
               <span className="text-[12.5px] text-zinc-200">
-                Press your combination… Esc to cancel
+                Press your combinationâ€¦ Esc to cancel
               </span>
             </div>
           ) : empty ? (
@@ -244,7 +231,6 @@ export function HotkeySection({ settings, setSettings }: Props) {
       window.removeEventListener("keydown", handler, { capture: true });
   }, [capturing, settings, setSettings]);
 
-  // Visual warning if any pair of non-empty bindings collides.
   const pairs: [string, string, string][] = [
     [settings.hotkey, settings.settingsHotkey, "Recording and Settings"],
     [settings.hotkey, settings.repasteHotkey, "Recording and Re-paste"],
@@ -259,7 +245,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
       <PageHero
         eyebrow="Triggers"
         title="Hotkeys"
-        description="System-wide key combinations that work from any app. Save to apply changes — no restart needed."
+        description="System-wide key combinations that work from any app. Save to apply changes â€” no restart needed."
         Icon={Keyboard}
       />
 
@@ -289,7 +275,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
             <BindingRow
               Icon={Clipboard}
               label="Re-paste last"
-              hint="Re-pastes your most recent dictation into the focused window. Optional — leave unassigned to disable."
+              hint="Re-pastes your most recent dictation into the focused window. Optional â€” leave unassigned to disable."
               combo={settings.repasteHotkey}
               capturing={capturing === "repaste"}
               onClick={() =>
@@ -303,7 +289,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
 
         {conflictPair && (
           <p className="mt-4 text-[11.5px] text-amber-400">
-            {conflictPair[2]} hotkeys are bound to the same combination — assign
+            {conflictPair[2]} hotkeys are bound to the same combination â€” assign
             different keys.
           </p>
         )}

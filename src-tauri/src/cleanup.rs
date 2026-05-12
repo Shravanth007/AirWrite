@@ -1,14 +1,11 @@
-pub fn cleanup_text(text: &str) -> String {
+﻿pub fn cleanup_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();
     }
 
-    // Normalize multiple spaces to single space
     let normalized: String = trimmed.split_whitespace().collect::<Vec<&str>>().join(" ");
 
-    // Capitalize only the first character — Whisper already handles sentence casing.
-    // Per-sentence re-capitalization breaks abbreviations like "e.g." and "i.e.".
     let mut result = String::with_capacity(normalized.len() + 1);
     let mut chars = normalized.chars();
     if let Some(first) = chars.next() {
@@ -16,7 +13,6 @@ pub fn cleanup_text(text: &str) -> String {
         result.push_str(chars.as_str());
     }
 
-    // Ensure ending punctuation
     if let Some(last) = result.chars().last() {
         if !matches!(last, '.' | '!' | '?') {
             result.push('.');

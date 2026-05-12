@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use airwrite_lib::audio;
 use airwrite_lib::ducking;
@@ -16,41 +16,24 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-/// Window of suppression for the settings toggle hotkey. Windows reports a
-/// brief is_focused=false right after show() before paint settles, and humans
-/// double-tap accelerators all the time. Anything inside this window after
-/// the previous toggle is treated as a duplicate and ignored.
 const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 
-/// Stable id for the system tray icon. We look the icon up by id from
-/// `save_settings` so a hotkey change can refresh the tooltip in place.
 const TRAY_ID: &str = "airwrite-tray";
 
 fn tray_tooltip(hotkey: &str) -> String {
-    format!("AirWrite — {} to dictate", hotkey)
+    format!("AirWrite â€” {} to dictate", hotkey)
 }
 
 struct AppState {
     recorder: Recorder,
     settings: Mutex<Settings>,
     app_dir: PathBuf,
-    /// Timestamp of the last settings-window show/hide. Used by
-    /// `toggle_settings_window` to debounce rapid presses.
     last_settings_toggle: Mutex<Option<Instant>>,
-    /// Authoritative set of accelerators we have successfully registered
-    /// with the global-shortcut plugin. Updated on every register/unregister
-    /// so the rebind helpers don't have to trust the OS state — if our set
-    /// says an accelerator is bound, it is.
     registered_hotkeys: Mutex<HashSet<String>>,
-    /// Shared with `Recorder`. Tauri commands (`get_history`,
-    /// `clear_history`) read/write the same buffer the recorder appends to
-    /// after each successful dictation; the global re-paste hotkey reads the
-    /// latest entry directly from it.
     history: Arc<Mutex<History>>,
 }
 
 fn app_dir() -> PathBuf {
-    // LocalAppData on Windows — secrets-adjacent state should NOT roam.
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("com.airwrite.app")
@@ -67,9 +50,6 @@ fn save_settings(
     state: State<AppState>,
     settings: Settings,
 ) -> Result<(), String> {
-    // Validate before any side effects: reject hotkey conflicts so we never
-    // try to register the same accelerator twice. With three hotkeys we
-    // check all non-empty pairs.
     let recording = settings.hotkey.trim();
     let panel = settings.settings_hotkey.trim();
     let repaste = settings.repaste_hotkey.trim();
@@ -92,17 +72,11 @@ fn save_settings(
         );
     }
 
-    // Snapshot the previous state so we can roll back hotkey rebinds if a
-    // later one fails (the earlier ones are already applied at the OS level).
     let old = state.settings.lock().clone();
     let recording_changed = old.hotkey != settings.hotkey;
     let panel_changed = old.settings_hotkey != settings.settings_hotkey;
     let repaste_changed = old.repaste_hotkey != settings.repaste_hotkey;
 
-    // Apply hotkey changes in order. Each rebind helper does
-    // register-new-then-unregister-old, so a failure leaves the previous
-    // hotkey intact at the OS level. If a later rebind fails we explicitly
-    // roll back the earlier ones.
     if recording_changed {
         rebind_recording_hotkey(&app, &old.hotkey, &settings.hotkey)
             .map_err(|e| format!("Could not bind recording hotkey '{}': {}", settings.hotkey, e))?;
@@ -128,7 +102,6 @@ fn save_settings(
     if repaste_changed {
         if let Err(e) = rebind_repaste_hotkey(&app, &old.repaste_hotkey, &settings.repaste_hotkey)
         {
-            // Roll back panel and recording rebinds if they ran.
             if panel_changed {
                 if let Err(re) = rebind_settings_hotkey(
                     &app,
@@ -156,11 +129,6 @@ fn save_settings(
         }
     }
 
-    // All rebinds succeeded (or there were none). Update in-memory state
-    // FIRST so the hotkey lambdas read the same recording mode/mic/etc. that
-    // the OS hotkeys are now bound to. Then attempt to persist to disk —
-    // a disk failure is surfaced to the user but cannot leave memory and the
-    // OS-level hotkeys disagreeing about which settings are active.
     *state.settings.lock() = settings.clone();
     if let Err(e) = settings.save(&state.app_dir) {
         warn!("Settings applied in memory but disk save failed: {}", e);
@@ -168,9 +136,7 @@ fn save_settings(
     }
 
     if recording_changed {
-        info!("Recording hotkey: {} → {}", old.hotkey, settings.hotkey);
-        // Tray tooltip mentions the recording hotkey — keep it in sync so
-        // the user doesn't see the old combo there after changing it.
+        info!("Recording hotkey: {} â†’ {}", old.hotkey, settings.hotkey);
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             if let Err(e) = tray.set_tooltip(Some(tray_tooltip(&settings.hotkey))) {
                 warn!("Could not update tray tooltip: {}", e);
@@ -179,13 +145,13 @@ fn save_settings(
     }
     if panel_changed {
         info!(
-            "Settings hotkey: {} → {}",
+            "Settings hotkey: {} â†’ {}",
             old.settings_hotkey, settings.settings_hotkey
         );
     }
     if repaste_changed {
         info!(
-            "Re-paste hotkey: {:?} → {:?}",
+            "Re-paste hotkey: {:?} â†’ {:?}",
             old.repaste_hotkey, settings.repaste_hotkey
         );
     }
@@ -203,8 +169,6 @@ async fn test_microphone(
     mic: Option<String>,
 ) -> Result<audio::MicTestResult, String> {
     let name = mic.unwrap_or_else(|| state.settings.lock().microphone.clone());
-    // Off the main thread — CPAL start/stop on its own task thread is fine here
-    // because the test is self-contained (no overlap with the main recorder).
     tauri::async_runtime::spawn_blocking(move || audio::test_microphone(&name, 1500))
         .await
         .map_err(|e| format!("Test thread panicked: {}", e))?
@@ -212,7 +176,6 @@ async fn test_microphone(
 
 #[tauri::command]
 fn open_mic_privacy_settings() -> Result<(), String> {
-    // ms-settings: URI handlers open the right panel directly.
     std::process::Command::new("cmd")
         .args(["/C", "start", "", "ms-settings:privacy-microphone"])
         .spawn()
@@ -249,9 +212,6 @@ fn clear_history(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Dispatch one hotkey event into the recorder. Branches on the user's
-/// `recording_mode` setting at the moment the key is hit, so toggling the
-/// mode in Settings takes effect on the next press without a restart.
 async fn handle_hotkey_event(
     app: &AppHandle,
     state: &AppState,
@@ -260,7 +220,6 @@ async fn handle_hotkey_event(
     let mode = state.settings.lock().recording_mode.clone();
 
     match mode.as_str() {
-        // Press = start, release = stop & transcribe.
         "push_to_talk" => match (pressed, state.recorder.get_state()) {
             (true, RecordingState::Ready) => {
                 let settings = state.settings.lock().clone();
@@ -275,12 +234,9 @@ async fn handle_hotkey_event(
                     .await
                     .map(|_| "ptt: stopped & transcribed")
             }
-            // Press while we're still transcribing the previous burst, or
-            // release without a matching press — both are benign no-ops.
             _ => Ok("ptt: noop"),
         },
 
-        // Toggle (default): act only on press.
         _ => {
             if !pressed {
                 return Ok("toggle: ignored release");
@@ -308,8 +264,6 @@ async fn handle_hotkey_event(
 }
 
 fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
-    // Idempotent: if our authoritative set says this accelerator is already
-    // bound, don't double-register (which would attach a second handler).
     if handle
         .state::<AppState>()
         .registered_hotkeys
@@ -329,7 +283,6 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
                 match handle_hotkey_event(&handle, state.inner(), pressed).await {
                     Ok(r) => info!("Hotkey: {}", r),
                     Err(e) => {
-                        // Benign — user mashed the key during transcribing.
                         if e.contains("transcribing") {
                             return;
                         }
@@ -348,9 +301,6 @@ fn register_recording_hotkey(handle: &AppHandle, accelerator: &str) -> Result<()
     Ok(())
 }
 
-/// Unregister an accelerator and drop it from the registry. Tolerates the
-/// "wasn't actually bound" case so the registry can self-heal if it ever
-/// disagrees with the plugin.
 fn unregister_hotkey(handle: &AppHandle, accelerator: &str) {
     if accelerator.is_empty() {
         return;
@@ -366,10 +316,6 @@ fn unregister_hotkey(handle: &AppHandle, accelerator: &str) {
 }
 
 fn rebind_recording_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
-    // Register the new accelerator FIRST. If that fails (combo already in
-    // use, malformed, etc.) we surface the error with the user's previous
-    // hotkey still bound — they don't get stranded with no working key.
-    // Only after `new` is live do we drop `old`.
     register_recording_hotkey(handle, new)?;
     if !old.is_empty() && old != new {
         unregister_hotkey(handle, old);
@@ -407,12 +353,6 @@ fn register_settings_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(),
     Ok(())
 }
 
-/// Hotkey-driven toggle: hidden → show & focus, visible-but-unfocused →
-/// focus, visible & focused → hide. Debounced so rapid double-presses (and
-/// the focus race that Windows triggers right after `show()`) don't ping-pong
-/// the window state. The tray menu's "Settings" entry deliberately uses
-/// `open_settings` (always-show) instead — clicking a menu item is
-/// unambiguous intent to see the window.
 fn toggle_settings_window(handle: &AppHandle) {
     let Some(w) = handle.get_webview_window("settings") else {
         warn!("toggle_settings_window: settings window not found");
@@ -420,7 +360,6 @@ fn toggle_settings_window(handle: &AppHandle) {
     };
     let state = handle.state::<AppState>();
 
-    // Suppress if we acted on this hotkey within the debounce window.
     {
         let last = state.last_settings_toggle.lock();
         if let Some(t) = *last {
@@ -443,9 +382,6 @@ fn toggle_settings_window(handle: &AppHandle) {
 }
 
 fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
-    // Same atomic-rebind pattern as `rebind_recording_hotkey`: bind the new
-    // combo first; only release the old one if the new bind succeeded. A
-    // failure leaves the old hotkey working.
     register_settings_hotkey(handle, new)?;
     if !old.is_empty() && old != new {
         unregister_hotkey(handle, old);
@@ -453,9 +389,6 @@ fn rebind_settings_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<()
     Ok(())
 }
 
-/// Re-paste the most recent history entry, on the calling thread (the
-/// async runtime). Errors are surfaced to the overlay so the user sees
-/// "no recent dictation to re-paste" if history is empty.
 fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
     if accelerator.is_empty() {
         return Ok(());
@@ -483,14 +416,12 @@ fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), 
                     let Some(latest) = h.latest() else {
                         let _ = handle.emit(
                             "recording-error",
-                            "Nothing to re-paste yet — dictate something first.",
+                            "Nothing to re-paste yet â€” dictate something first.",
                         );
                         return;
                     };
                     (latest.text.clone(), state.settings.lock().clipboard_restore)
                 };
-                // Run the synchronous paste off the async-runtime thread —
-                // it sleeps (PRE_PASTE_DELAY) and synthesises keystrokes.
                 let result = tauri::async_runtime::spawn_blocking(move || {
                     paste_text(&text, restore)
                 })
@@ -529,7 +460,6 @@ fn overlay_position(app: &AppHandle) -> (f64, f64) {
     if let Ok(Some(m)) = app.primary_monitor() {
         let scale = m.scale_factor();
         let logical_w = m.size().width as f64 / scale;
-        // Center the compact pill horizontally near the top, like a notch.
         ((logical_w / 2.0) - 160.0, 18.0)
     } else {
         (760.0, 18.0)
@@ -551,7 +481,6 @@ fn build_overlay_window(app: &AppHandle) -> tauri::Result<()> {
         .shadow(false)
         .visible(true)
         .build()?;
-    // Click-through: never steal focus or block clicks.
     let _ = w.set_ignore_cursor_events(true);
     Ok(())
 }
@@ -595,9 +524,6 @@ fn main() {
     if let Err(e) = std::fs::create_dir_all(&dir) {
         warn!("Could not create app dir {}: {}", dir.display(), e);
     }
-    // If a previous run died mid-recording while ducked, the master volume
-    // is still at the duck level. Recover it before doing anything else, so
-    // the user gets their audio back the moment AirWrite starts.
     ducking::restore_pending(&dir.join("pre_duck.txt"));
     let settings = Settings::load(&dir);
     let initial_hotkey = settings.hotkey.clone();
@@ -641,8 +567,6 @@ fn main() {
                 Err(e) => error!("Failed to create overlay: {}", e),
             }
 
-            // Intercept the Settings window's close button: hide instead of
-            // destroy, so the next "Open settings" can find and re-show it.
             if let Some(settings_win) = handle.get_webview_window("settings") {
                 let win = settings_win.clone();
                 settings_win.on_window_event(move |event| {
@@ -652,7 +576,7 @@ fn main() {
                     }
                 });
             } else {
-                warn!("Settings window not found at setup time — close-to-hide not wired");
+                warn!("Settings window not found at setup time â€” close-to-hide not wired");
             }
 
             if api_key_missing {
@@ -665,7 +589,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        "Recording hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                        "Recording hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
                         initial_hotkey
                     ),
                 );
@@ -680,7 +604,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        "Settings hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                        "Settings hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
                         initial_settings_hotkey
                     ),
                 );
@@ -696,7 +620,7 @@ fn main() {
                     let _ = handle.emit(
                         "recording-error",
                         format!(
-                            "Re-paste hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
+                            "Re-paste hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
                             initial_repaste_hotkey
                         ),
                     );

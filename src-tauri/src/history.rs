@@ -1,14 +1,4 @@
-//! Bounded transcription history persisted next to `config.json`.
-//!
-//! Stores the most recent N successful dictations so the user can copy any
-//! one back to the clipboard, or re-paste the latest into the focused
-//! window via the global Re-paste hotkey. Capped at 20 entries on disk;
-//! older ones are evicted on each `push`.
-//!
-//! Failure to read or write the file is non-fatal: we'd rather lose history
-//! than block a recording. Corrupt files are replaced silently with an empty
-//! history on next launch.
-
+﻿
 use log::warn;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -17,10 +7,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const HISTORY_FILENAME: &str = "history.json";
 const MAX_ENTRIES: usize = 20;
 
-/// One transcription. `timestamp` is Unix seconds; `duration_secs` is the
-/// length of the audio that produced this text (so the UI can show
-/// "5.4s · 47 words"). Word count is computed at push time so the UI
-/// doesn't have to.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub text: String,
@@ -31,7 +17,6 @@ pub struct HistoryEntry {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct History {
-    /// Newest first.
     pub entries: Vec<HistoryEntry>,
 }
 
@@ -40,9 +25,6 @@ impl History {
         app_dir.join(HISTORY_FILENAME)
     }
 
-    /// Read history from disk. Missing or unreadable file → empty history;
-    /// corrupt JSON also → empty history (with a warn log, no error to the
-    /// user).
     pub fn load(app_dir: &Path) -> Self {
         let path = Self::path(app_dir);
         match std::fs::read_to_string(&path) {
@@ -65,8 +47,6 @@ impl History {
         }
     }
 
-    /// Persist to disk. Errors logged but never propagated — losing a
-    /// history write must not block the user's pipeline.
     pub fn save(&self, app_dir: &Path) {
         let path = Self::path(app_dir);
         if let Err(e) = std::fs::create_dir_all(app_dir) {
@@ -87,9 +67,6 @@ impl History {
         }
     }
 
-    /// Insert a new entry at the front; evict from the back to stay within
-    /// `MAX_ENTRIES`. Empty / whitespace-only text is dropped — no point
-    /// remembering nothing.
     pub fn push(&mut self, text: &str, duration_secs: f32) {
         let trimmed = text.trim();
         if trimmed.is_empty() {

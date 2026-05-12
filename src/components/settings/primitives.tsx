@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 
 export function PageHero({
   eyebrow,
@@ -62,11 +62,6 @@ export function Field({
   );
 }
 
-/**
- * Section block — replaces the old Card. No nested rounded box; just a
- * top hairline plus padding. Stack these in a section and you get a clean
- * monochrome list of subsections separated by thin lines.
- */
 export function Block({
   children,
   className = "",

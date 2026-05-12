@@ -1,14 +1,4 @@
-//! Optional post-Whisper polish via Groq's Llama 3.3 70B Versatile.
-//!
-//! The cleanup pass fixes grammar, punctuation, and capitalisation, and
-//! drops disfluencies ("um", "uh", "like") that Whisper transcribes
-//! verbatim. It is opt-in (`Settings::ai_cleanup_enabled`) because it adds
-//! 0.3–1.0s of round-trip latency.
-//!
-//! Failure of this pass is **never fatal**: the caller falls back to the
-//! raw Whisper output so the user never loses a dictation just because the
-//! polish step had a bad day.
-
+﻿
 use log::warn;
 use serde_json::json;
 use std::time::Duration;
@@ -16,8 +6,6 @@ use std::time::Duration;
 const GROQ_CHAT_ENDPOINT: &str = "https://api.groq.com/openai/v1/chat/completions";
 const CLEANUP_MODEL: &str = "llama-3.3-70b-versatile";
 
-/// Hard ceiling on a single cleanup call. Whisper's own request has a 60s
-/// timeout; 15s here keeps a flaky LLM from holding the paste back too long.
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(15);
 
 const SYSTEM_PROMPT: &str = "You are a transcription editor. The user just spoke and Whisper transcribed it. \
@@ -28,9 +16,6 @@ summarise, expand, rephrase, or change wording beyond what is necessary for gram
 correctness. Do NOT add commentary, preambles, quotes, or any text other than the \
 cleaned transcription. If the input is already clean, return it unchanged.";
 
-/// Polish `raw_text` via Groq's chat completions endpoint. On any failure
-/// (network, HTTP, parse, empty response) returns `Err` — the caller is
-/// expected to fall back to `raw_text` so the user's dictation is never lost.
 pub async fn cleanup_with_llm(api_key: &str, raw_text: &str) -> Result<String, String> {
     let trimmed = raw_text.trim();
     if trimmed.is_empty() {
@@ -68,8 +53,6 @@ pub async fn cleanup_with_llm(api_key: &str, raw_text: &str) -> Result<String, S
 
     let status = response.status();
     if !status.is_success() {
-        // Same caution as the Whisper path — never echo the raw body, since
-        // some proxy errors include the request payload.
         return Err(format!("LLM cleanup HTTP {}", status));
     }
 
@@ -84,8 +67,6 @@ pub async fn cleanup_with_llm(api_key: &str, raw_text: &str) -> Result<String, S
 
     let cleaned = content.trim();
     if cleaned.is_empty() {
-        // Don't replace good text with empty text — bubble up so caller falls
-        // back to the raw transcription.
         return Err("LLM returned empty content".to_string());
     }
     Ok(cleaned.to_string())

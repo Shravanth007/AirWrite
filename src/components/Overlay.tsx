@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Check, AlertTriangle, Loader2 } from "lucide-react";
 
@@ -114,7 +114,6 @@ function Pill({
     );
   }
 
-  // error
   return (
     <div
       className="inline-flex items-center gap-2 h-9 max-w-full px-3.5 rounded-full bg-black border border-red-500/40 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.7),0_0_0_3px_rgba(239,68,68,0.08)] animate-overlay-in select-text overflow-hidden"

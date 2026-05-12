@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+﻿import { useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Mic2,
@@ -47,9 +47,6 @@ export function Sidebar({
   const apiKeyOk = settings.groqApiKey.trim().length > 0;
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // Press "/" anywhere in the Settings window to jump into the search field —
-  // matches the kbd hint shown next to the input. Skipped while the user is
-  // already typing in a form control so a literal "/" doesn't get hijacked.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "/" || e.ctrlKey || e.altKey || e.metaKey) return;

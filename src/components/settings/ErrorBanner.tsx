@@ -1,13 +1,7 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, X } from "lucide-react";
 
-/**
- * Persistent, dismissable red banner that pins to the top of the Settings
- * main pane. Catches `recording-error` events while the window is open and
- * auto-clears on the next successful `recording-state: done` (so a hiccup
- * that sorts itself out doesn't linger).
- */
 export function ErrorBanner() {
   const [message, setMessage] = useState<string | null>(null);
 

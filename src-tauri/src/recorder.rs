@@ -1,4 +1,4 @@
-use log::{info, warn};
+﻿use log::{info, warn};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,9 +14,6 @@ use crate::paste::paste_text;
 use crate::settings::Settings;
 use crate::transcribe_groq;
 
-/// Filename used inside the app data dir to remember a pre-duck volume that
-/// hasn't been restored yet. Read on startup, written on duck, deleted on
-/// clean restore.
 const DUCK_RECOVERY_FILENAME: &str = "pre_duck.txt";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -29,19 +26,9 @@ pub enum RecordingState {
 pub struct Recorder {
     state: Arc<Mutex<RecordingState>>,
     audio_recorder: Arc<Mutex<AudioRecorder>>,
-    /// Master output volume captured right before we ducked it. `Some` only
-    /// while a duck is in effect; cleared on restore. Lives on the Recorder
-    /// so the duck/restore pair is naturally tied to the recording lifetime.
     pre_duck_volume: Arc<Mutex<Option<f32>>>,
-    /// On-disk mirror of `pre_duck_volume`. Lets us recover the master
-    /// volume on next launch if the process dies mid-recording.
     duck_recovery_path: PathBuf,
-    /// Bounded transcription history. Shared with `main.rs` so Tauri
-    /// commands (`get_history`, `clear_history`) and the global re-paste
-    /// hotkey see the same buffer the recorder writes into.
     history: Arc<Mutex<History>>,
-    /// Where `history` is persisted, so we can save after each push without
-    /// shuttling the path around.
     app_dir: PathBuf,
 }
 
@@ -75,17 +62,13 @@ impl Recorder {
             *state = RecordingState::Recording;
         }
 
-        // Apply ducking AFTER the mic is already capturing. Failure is
-        // non-fatal — the recording is more important than the duck.
         if settings.ducking_enabled {
             match ducking::duck(settings.ducking_level) {
                 Ok(prior) => {
                     *self.pre_duck_volume.lock() = Some(prior);
-                    // Mirror the snapshot to disk so a crash mid-recording
-                    // doesn't leave the user's master volume stuck low.
                     ducking::save_pending(prior, &self.duck_recovery_path);
                     info!(
-                        "Ducked master volume: {:.0}% → {}%",
+                        "Ducked master volume: {:.0}% â†’ {}%",
                         prior * 100.0,
                         settings.ducking_level
                     );
@@ -98,14 +81,9 @@ impl Recorder {
         Ok(())
     }
 
-    /// Restore the master volume if we ducked. Idempotent — clears the
-    /// snapshot so subsequent calls are no-ops. Always called on the path
-    /// out of a recording, regardless of success/failure.
     fn restore_volume(&self) {
         if let Some(prior) = self.pre_duck_volume.lock().take() {
             ducking::restore(prior);
-            // Clean exit: drop the recovery file so we don't try to restore
-            // a stale level on next launch.
             ducking::clear_pending(&self.duck_recovery_path);
         }
     }
@@ -122,15 +100,11 @@ impl Recorder {
             }
             *state = RecordingState::Transcribing;
         }
-        // Restore audio as soon as the user stops recording, not after
-        // transcription finishes — they want the music back the moment they
-        // release the key, not after Groq replies.
         self.restore_volume();
         let _ = app.emit("recording-state", "transcribing");
 
         let result = self.do_transcribe(settings, app).await;
 
-        // Always reset state, regardless of outcome.
         *self.state.lock() = RecordingState::Ready;
 
         match &result {
@@ -150,7 +124,6 @@ impl Recorder {
         settings: &Settings,
         app: &AppHandle,
     ) -> Result<String, String> {
-        // NamedTempFile auto-deletes when dropped — survives panic and crash.
         let temp = tempfile::Builder::new()
             .prefix("airwrite-")
             .suffix(".wav")
@@ -166,20 +139,15 @@ impl Recorder {
         let api_started = Instant::now();
         let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
         let api_secs = api_started.elapsed().as_secs_f32();
-        // `temp` drops at end of scope → file is removed.
 
         let cleaned = cleanup_text(&raw_text);
 
-        // Optional LLM polish. If it fails for any reason — network, HTTP
-        // error, empty response — we fall back to the plain cleanup result
-        // so the user never loses a dictation just because the polish step
-        // had a bad day.
         let (final_text, llm_secs) = if settings.ai_cleanup_enabled && !cleaned.is_empty() {
             let llm_started = Instant::now();
             match llm_cleanup::cleanup_with_llm(&api_key, &cleaned).await {
                 Ok(polished) => {
                     let secs = llm_started.elapsed().as_secs_f32();
-                    info!("LLM cleanup ({:.2}s): {:?} → {:?}", secs, cleaned, polished);
+                    info!("LLM cleanup ({:.2}s): {:?} â†’ {:?}", secs, cleaned, polished);
                     (polished, Some(secs))
                 }
                 Err(e) => {
@@ -198,25 +166,18 @@ impl Recorder {
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
 
-        // Persist to history AFTER a successful paste so we never record a
-        // dictation the user never actually saw.
         if !final_text.is_empty() {
             let mut h = self.history.lock();
             h.push(&final_text, audio_secs);
             h.save(&self.app_dir);
             drop(h);
-            // Let the Settings UI refresh its history list without polling.
             let _ = app.emit("history-updated", ());
         }
 
-        // Real-time factor: how long Groq took relative to the audio duration.
-        // <1.0 means "faster than real-time" (typical for whisper-large-v3-turbo
-        // on Groq, often 0.05–0.20). >1.0 means the network or the model is
-        // bottlenecking.
         let rtf = if audio_secs > 0.0 { api_secs / audio_secs } else { 0.0 };
         match llm_secs {
             Some(secs) => info!(
-                "Speed: groq={:.2}s rtf={:.2}x · llm={:.2}s · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                "Speed: groq={:.2}s rtf={:.2}x Â· llm={:.2}s Â· audio={:.2}s Â· upload={:.0}KB Â· paste={:.2}s Â· total={:.2}s",
                 api_secs,
                 rtf,
                 secs,
@@ -226,7 +187,7 @@ impl Recorder {
                 total_secs,
             ),
             None => info!(
-                "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
+                "Speed: groq={:.2}s rtf={:.2}x Â· audio={:.2}s Â· upload={:.0}KB Â· paste={:.2}s Â· total={:.2}s",
                 api_secs,
                 rtf,
                 audio_secs,
