@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   KeyRound,
   Eye,
@@ -20,6 +21,8 @@ import {
 interface Props {
   settings: Settings;
   setSettings: (s: Settings) => void;
+  hasKey: boolean;
+  onKeyChanged: () => void;
 }
 
 function maskedPreview(key: string): string {
@@ -28,10 +31,9 @@ function maskedPreview(key: string): string {
   return `${key.slice(0, 4)}${"•".repeat(Math.min(key.length - 8, 16))}${key.slice(-4)}`;
 }
 
-export function ApiKeySection({ settings, setSettings }: Props) {
+export function ApiKeySection({ settings, setSettings, hasKey, onKeyChanged }: Props) {
   const [reveal, setReveal] = useState(false);
-  const trimmed = settings.groqApiKey.trim();
-  const hasKey = trimmed.length > 0;
+  const typed = settings.groqApiKey.trim();
 
   return (
     <div>
@@ -55,7 +57,7 @@ export function ApiKeySection({ settings, setSettings }: Props) {
           {hasKey ? <Pill tone="ok">Active</Pill> : <Pill tone="warn">Required</Pill>}
           {hasKey && (
             <span className="font-mono text-[11px] text-zinc-500 ml-auto">
-              {maskedPreview(trimmed)}
+              {typed ? maskedPreview(typed) : "••••••••••••"}
             </span>
           )}
         </div>
@@ -101,7 +103,10 @@ export function ApiKeySection({ settings, setSettings }: Props) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSettings({ ...settings, groqApiKey: "" })}
+              onClick={async () => {
+                try { await invoke("clear_api_key"); setSettings({ ...settings, groqApiKey: "" }); onKeyChanged(); }
+                catch (e) { /* surface via existing error path if present, else ignore */ }
+              }}
             >
               <Trash2 className="w-3 h-3" />
               Remove

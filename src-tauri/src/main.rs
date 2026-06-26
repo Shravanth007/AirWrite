@@ -41,15 +41,35 @@ fn app_dir() -> PathBuf {
 
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.lock().clone()
+    let mut s = state.settings.lock().clone();
+    s.groq_api_key = String::new();
+    s
+}
+
+#[tauri::command]
+fn has_api_key(state: State<AppState>) -> bool {
+    !state.settings.lock().groq_api_key.trim().is_empty()
+}
+
+#[tauri::command]
+fn clear_api_key(state: State<AppState>) -> Result<(), String> {
+    let settings = {
+        let mut s = state.settings.lock();
+        s.groq_api_key = String::new();
+        s.clone()
+    };
+    settings.save(&state.app_dir)
 }
 
 #[tauri::command]
 fn save_settings(
     app: AppHandle,
     state: State<AppState>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<(), String> {
+    if settings.groq_api_key.trim().is_empty() {
+        settings.groq_api_key = state.settings.lock().groq_api_key.clone();
+    }
     let recording = settings.hotkey.trim();
     let panel = settings.settings_hotkey.trim();
     let repaste = settings.repaste_hotkey.trim();
@@ -546,6 +566,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            has_api_key,
+            clear_api_key,
             save_settings,
             list_microphones,
             test_microphone,
