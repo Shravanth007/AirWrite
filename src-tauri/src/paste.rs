@@ -24,6 +24,12 @@ pub fn paste_text(text: &str, restore_clipboard: bool) -> Result<(), String> {
 
     let mut enigo =
         Enigo::new(&Settings::default()).map_err(|e| format!("Enigo init failed: {}", e))?;
+    // ponytail: PTT release can leave Ctrl/Shift/Alt/Win physically held; release them so the
+    // synthetic Ctrl+V isn't seen as Ctrl+Shift+V etc. Release on an un-pressed key is a harmless no-op.
+    for k in [Key::Shift, Key::Alt, Key::Meta, Key::Control] {
+        let _ = enigo.key(k, Direction::Release);
+    }
+    std::thread::sleep(Duration::from_millis(20));
     enigo
         .key(Key::Control, Direction::Press)
         .map_err(|e| format!("Ctrl down failed: {}", e))?;
