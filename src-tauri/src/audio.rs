@@ -141,7 +141,7 @@ impl AudioRecorder {
         );
 
         if peak < SILENCE_PEAK_THRESHOLD {
-            warn!(“Audio peak {:.5} below silence threshold — refusing to send.”, peak);
+            warn!("Audio peak {:.5} below silence threshold — refusing to send.", peak);
             return Err(format!(
                 "Microphone captured silence (peak {:.4}). \
                  Check Windows mic permissions, mute switch, and that the right input is selected in Settings.",
@@ -365,13 +365,13 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
     let verdict = if mono.is_empty() {
         "No samples captured. Stream did not produce data.".to_string()
     } else if peak < 0.001 {
-        “SILENT — Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.”.to_string()
+        "SILENT — Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.".to_string()
     } else if peak < SILENCE_PEAK_THRESHOLD {
-        “Very quiet — speak louder or check Levels in Windows sound panel.”.to_string()
+        "Very quiet — speak louder or check Levels in Windows sound panel.".to_string()
     } else if peak < 0.05 {
         "Audio detected but quiet. Speech may transcribe poorly. Boost mic Level in Windows.".to_string()
     } else {
-        “Healthy signal — mic is working.”.to_string()
+        "Healthy signal — mic is working.".to_string()
     };
 
     Ok(MicTestResult {

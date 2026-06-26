@@ -1,4 +1,4 @@
-﻿use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use log::warn;
 use std::time::Duration;
 

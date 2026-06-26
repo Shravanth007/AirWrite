@@ -21,7 +21,7 @@ const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 const TRAY_ID: &str = "airwrite-tray";
 
 fn tray_tooltip(hotkey: &str) -> String {
-    format!(“AirWrite — {} to dictate”, hotkey)
+    format!("AirWrite — {} to dictate", hotkey)
 }
 
 struct AppState {
@@ -436,7 +436,7 @@ fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), 
                     let Some(latest) = h.latest() else {
                         let _ = handle.emit(
                             "recording-error",
-                            “Nothing to re-paste yet — dictate something first.”,
+                            "Nothing to re-paste yet — dictate something first.",
                         );
                         return;
                     };
@@ -598,7 +598,7 @@ fn main() {
                     }
                 });
             } else {
-                warn!(“Settings window not found at setup time — close-to-hide not wired”);
+                warn!("Settings window not found at setup time — close-to-hide not wired");
             }
 
             if api_key_missing {
@@ -611,7 +611,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        “Recording hotkey {} couldn’t be bound — another app may already use it. Pick a different combination in Settings → Hotkey.”,
+                        "Recording hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                         initial_hotkey
                     ),
                 );
@@ -626,7 +626,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        “Settings hotkey {} couldn’t be bound — another app may already use it. Pick a different combination in Settings → Hotkey.”,
+                        "Settings hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                         initial_settings_hotkey
                     ),
                 );
@@ -642,7 +642,7 @@ fn main() {
                     let _ = handle.emit(
                         "recording-error",
                         format!(
-                            “Re-paste hotkey {} couldn’t be bound — another app may already use it. Pick a different combination in Settings → Hotkey.”,
+                            "Re-paste hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                             initial_repaste_hotkey
                         ),
                     );

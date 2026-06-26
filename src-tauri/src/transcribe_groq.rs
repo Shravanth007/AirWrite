@@ -64,7 +64,7 @@ fn classify_request_error(e: reqwest::Error) -> String {
     log::warn!("Network error during transcribe: {}", raw);
 
     if e.is_timeout() {
-        return “Request timed out. Groq might be slow right now — try again.”.to_string();
+        return "Request timed out. Groq might be slow right now — try again.".to_string();
     }
     if e.is_connect() {
         if raw.contains("dns") || raw.contains("lookup") || raw.contains("resolve") {
@@ -97,7 +97,7 @@ fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
 
 fn validate_api_key(key: &str) -> Result<(), String> {
     if key.len() > 256 {
-        return Err(“API key looks too long — copy/paste error?”.to_string());
+        return Err("API key looks too long — copy/paste error?".to_string());
     }
     if key.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return Err("API key contains whitespace or control characters.".to_string());
