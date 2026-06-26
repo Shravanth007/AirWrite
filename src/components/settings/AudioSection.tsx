@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Activity,
@@ -159,7 +159,7 @@ export function AudioSection({
                 {result.device}
               </span>
               <span className="shrink-0 font-mono">
-                {result.sample_rate} Hz Â· {result.channels}ch Â· {result.format}
+                {result.sample_rate} Hz · {result.channels}ch · {result.format}
               </span>
             </div>
             <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden border border-white/[0.06]">

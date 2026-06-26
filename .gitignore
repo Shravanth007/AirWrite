@@ -15,3 +15,6 @@ Thumbs.db
 issuestosolve.md
 issues.md
 todo.md
+
+# Claude Code agent worktrees
+.claude/worktrees/

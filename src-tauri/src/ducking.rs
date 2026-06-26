@@ -1,4 +1,4 @@
-﻿
+
 use log::{info, warn};
 use std::fs;
 use std::path::Path;
@@ -106,7 +106,7 @@ pub fn restore_pending(path: &Path) {
         Ok(pct) if pct <= 100 => {
             let level = pct as f32 / 100.0;
             info!(
-                "Recovering master volume from prior unclean exit: â†’ {}%",
+                "Recovering master volume from prior unclean exit: → {}%",
                 pct
             );
             restore(level);

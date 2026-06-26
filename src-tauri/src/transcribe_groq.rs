@@ -1,4 +1,4 @@
-﻿use reqwest::multipart;
+use reqwest::multipart;
 use std::path::Path;
 
 const GROQ_ENDPOINT: &str = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -64,7 +64,7 @@ fn classify_request_error(e: reqwest::Error) -> String {
     log::warn!("Network error during transcribe: {}", raw);
 
     if e.is_timeout() {
-        return "Request timed out. Groq might be slow right now â€” try again.".to_string();
+        return “Request timed out. Groq might be slow right now — try again.”.to_string();
     }
     if e.is_connect() {
         if raw.contains("dns") || raw.contains("lookup") || raw.contains("resolve") {
@@ -80,7 +80,7 @@ fn classify_request_error(e: reqwest::Error) -> String {
 
 fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
     match status {
-        401 | 403 => "Your Groq API key was rejected. Open Settings â†’ API key to update it.".to_string(),
+        401 | 403 => "Your Groq API key was rejected. Open Settings → API key to update it.".to_string(),
         408 => "Groq took too long to respond. Try again.".to_string(),
         413 => "Recording is too long for Groq. Keep dictations under ~25 MB of audio.".to_string(),
         429 => "Too many requests. Wait a few seconds and try again.".to_string(),
@@ -97,7 +97,7 @@ fn classify_status_error(status: u16, groq_message: Option<String>) -> String {
 
 fn validate_api_key(key: &str) -> Result<(), String> {
     if key.len() > 256 {
-        return Err("API key looks too long â€” copy/paste error?".to_string());
+        return Err(“API key looks too long — copy/paste error?”.to_string());
     }
     if key.chars().any(|c| c.is_control() || c.is_whitespace()) {
         return Err("API key contains whitespace or control characters.".to_string());
