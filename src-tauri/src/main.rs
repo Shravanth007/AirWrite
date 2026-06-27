@@ -20,6 +20,9 @@ const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 const TRAY_ID: &str = "airwrite-tray";
 
+// ponytail: fixed key, not configurable. Make it a setting if users ask.
+const MUTE_HOTKEY: &str = "F9";
+
 fn tray_tooltip(hotkey: &str) -> String {
     format!("AirWrite — {} to dictate", hotkey)
 }
@@ -468,6 +471,29 @@ fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), 
     Ok(())
 }
 
+fn register_mute_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), String> {
+    let captured = handle.clone();
+    handle
+        .global_shortcut()
+        .on_shortcut(accelerator, move |_app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            match ducking::toggle_mic_mute() {
+                Ok(muted) => {
+                    info!("Mic {}", if muted { "muted" } else { "unmuted" });
+                    let _ = captured.emit("mic-mute", muted);
+                }
+                Err(e) => {
+                    error!("Mic mute toggle failed: {}", e);
+                    let _ = captured.emit("recording-error", &e);
+                }
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn rebind_repaste_hotkey(handle: &AppHandle, old: &str, new: &str) -> Result<(), String> {
     register_repaste_hotkey(handle, new)?;
     if !old.is_empty() && old != new {
@@ -647,6 +673,18 @@ fn main() {
                         ),
                     );
                 }
+            }
+
+            info!("Registering mute hotkey: {}", MUTE_HOTKEY);
+            if let Err(e) = register_mute_hotkey(&handle, MUTE_HOTKEY) {
+                warn!("Failed to register mute hotkey '{}': {}", MUTE_HOTKEY, e);
+                let _ = handle.emit(
+                    "recording-error",
+                    format!(
+                        "Mute hotkey {} couldn't be bound — another app may already use it.",
+                        MUTE_HOTKEY
+                    ),
+                );
             }
             Ok(())
         })

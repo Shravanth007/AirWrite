@@ -3,8 +3,9 @@ use log::{info, warn};
 use std::fs;
 use std::path::Path;
 use windows::core::Result as WinResult;
+use windows::Win32::Foundation::BOOL;
 use windows::Win32::Media::Audio::{
-    eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator,
+    eCapture, eConsole, eRender, EDataFlow, IMMDeviceEnumerator, MMDeviceEnumerator,
 };
 use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::System::Com::{
@@ -22,14 +23,35 @@ fn ensure_com() -> WinResult<()> {
     }
 }
 
-fn get_endpoint_volume() -> WinResult<IAudioEndpointVolume> {
+fn endpoint_volume(flow: EDataFlow) -> WinResult<IAudioEndpointVolume> {
     ensure_com()?;
     unsafe {
         let enumerator: IMMDeviceEnumerator =
             CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_INPROC_SERVER)?;
-        let device = enumerator.GetDefaultAudioEndpoint(eRender, eConsole)?;
+        let device = enumerator.GetDefaultAudioEndpoint(flow, eConsole)?;
         let volume: IAudioEndpointVolume = device.Activate(CLSCTX_INPROC_SERVER, None)?;
         Ok(volume)
+    }
+}
+
+fn get_endpoint_volume() -> WinResult<IAudioEndpointVolume> {
+    endpoint_volume(eRender)
+}
+
+/// Toggle the default microphone (capture endpoint) mute in Windows.
+/// Returns the new muted state. Persists in Windows like any device mute.
+pub fn toggle_mic_mute() -> Result<bool, String> {
+    let volume =
+        endpoint_volume(eCapture).map_err(|e| format!("Mic endpoint init failed: {}", e))?;
+    unsafe {
+        let muted = volume
+            .GetMute()
+            .map_err(|e| format!("Read mic mute failed: {}", e))?;
+        let new_muted = !muted.as_bool();
+        volume
+            .SetMute(BOOL::from(new_muted), std::ptr::null())
+            .map_err(|e| format!("Set mic mute failed: {}", e))?;
+        Ok(new_muted)
     }
 }
 
