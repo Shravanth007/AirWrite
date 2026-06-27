@@ -395,16 +395,66 @@ fn resample(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     let ratio = from_rate as f64 / to_rate as f64;
     let output_len = (samples.len() as f64 / ratio) as usize;
     let mut output = Vec::with_capacity(output_len);
-    for i in 0..output_len {
-        let src_idx = i as f64 * ratio;
-        let idx = src_idx as usize;
-        let frac = src_idx - idx as f64;
-        let sample = if idx + 1 < samples.len() {
-            samples[idx] as f64 * (1.0 - frac) + samples[idx + 1] as f64 * frac
-        } else {
-            samples[idx.min(samples.len() - 1)] as f64
-        };
-        output.push(sample as f32);
+
+    if to_rate < from_rate {
+        // ponytail: box-average (area) resampler — each output sample is the mean of the
+        // input samples that fall within its interval [i*ratio, (i+1)*ratio). This is a
+        // moving-average low-pass that naturally attenuates aliases above the new Nyquist.
+        // Good enough for speech; upgrade path is a windowed-sinc FIR if quality complaints arise.
+        for i in 0..output_len {
+            let start = i as f64 * ratio;
+            let end = (i + 1) as f64 * ratio;
+            let i_start = start as usize;
+            let i_end = (end as usize).min(samples.len());
+            let sum: f64 = samples[i_start..i_end].iter().map(|&s| s as f64).sum();
+            let count = (i_end - i_start).max(1) as f64;
+            output.push((sum / count) as f32);
+        }
+    } else {
+        // Upsample: keep existing linear interpolation (rare path for this app).
+        for i in 0..output_len {
+            let src_idx = i as f64 * ratio;
+            let idx = src_idx as usize;
+            let frac = src_idx - idx as f64;
+            let sample = if idx + 1 < samples.len() {
+                samples[idx] as f64 * (1.0 - frac) + samples[idx + 1] as f64 * frac
+            } else {
+                samples[idx.min(samples.len() - 1)] as f64
+            };
+            output.push(sample as f32);
+        }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resample_downsample_box_average() {
+        // Constant signal: DC must be preserved exactly.
+        let constant: Vec<f32> = vec![0.5f32; 441];
+        let out = resample(&constant, 44100, 16000);
+        // Expected output length: floor(441 / (44100/16000)) = floor(441 * 16000/44100) = 159
+        assert!(!out.is_empty());
+        for s in &out {
+            assert!((*s - 0.5).abs() < 1e-5, "DC not preserved: got {}", s);
+        }
+
+        // Ramp signal: averages should be roughly centered values.
+        // Input: 0.0, 1.0/(N-1), 2.0/(N-1), ..., 1.0 (N=441 samples at 44100 Hz).
+        let n = 441usize;
+        let ramp: Vec<f32> = (0..n).map(|i| i as f32 / (n - 1) as f32).collect();
+        let out_ramp = resample(&ramp, 44100, 16000);
+        assert!(!out_ramp.is_empty());
+        // The output length should be approximately n * to_rate / from_rate.
+        let expected_len = (n as f64 * 16000.0 / 44100.0) as usize;
+        assert_eq!(out_ramp.len(), expected_len);
+        // First output sample averages ramp[0..ratio_ceil] — should be close to 0.
+        assert!(out_ramp[0] < 0.1, "first sample too large: {}", out_ramp[0]);
+        // Last output sample should be close to 1.
+        let last = *out_ramp.last().unwrap();
+        assert!(last > 0.9, "last sample too small: {}", last);
+    }
 }
