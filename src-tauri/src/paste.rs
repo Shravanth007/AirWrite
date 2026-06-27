@@ -1,8 +1,11 @@
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use log::warn;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-const PRE_PASTE_DELAY: Duration = Duration::from_millis(50);
+// ponytail: we verify the clipboard write landed; we still cannot verify the target app
+// *read* it (that's inherent to clipboard paste — no OS API exposes that).
+const CLIPBOARD_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const CLIPBOARD_VERIFY_TIMEOUT: Duration = Duration::from_millis(300);
 
 const RESTORE_DELAY: Duration = Duration::from_millis(500);
 
@@ -20,7 +23,21 @@ pub fn paste_text(text: &str, restore_clipboard: bool) -> Result<(), String> {
         .set_text(text)
         .map_err(|e| format!("Clipboard write failed: {}", e))?;
 
-    std::thread::sleep(PRE_PASTE_DELAY);
+    // Poll the clipboard back until it matches what we wrote, confirming the write landed
+    // before we send Ctrl+V. In the common case this exits in a few ms; 300ms is the safety cap.
+    let deadline = Instant::now() + CLIPBOARD_VERIFY_TIMEOUT;
+    loop {
+        match clipboard.get_text() {
+            Ok(ref current) if current == text => break,
+            _ => {}
+        }
+        if Instant::now() >= deadline {
+            warn!("paste_text: clipboard verify timed out after {}ms — proceeding best-effort",
+                CLIPBOARD_VERIFY_TIMEOUT.as_millis());
+            break;
+        }
+        std::thread::sleep(CLIPBOARD_POLL_INTERVAL);
+    }
 
     let mut enigo =
         Enigo::new(&Settings::default()).map_err(|e| format!("Enigo init failed: {}", e))?;
