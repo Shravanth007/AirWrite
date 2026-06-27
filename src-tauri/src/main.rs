@@ -1,4 +1,4 @@
-﻿#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use airwrite_lib::audio;
 use airwrite_lib::ducking;
@@ -21,7 +21,7 @@ const SETTINGS_TOGGLE_DEBOUNCE: Duration = Duration::from_millis(250);
 const TRAY_ID: &str = "airwrite-tray";
 
 fn tray_tooltip(hotkey: &str) -> String {
-    format!("AirWrite â€” {} to dictate", hotkey)
+    format!("AirWrite — {} to dictate", hotkey)
 }
 
 struct AppState {
@@ -41,15 +41,35 @@ fn app_dir() -> PathBuf {
 
 #[tauri::command]
 fn get_settings(state: State<AppState>) -> Settings {
-    state.settings.lock().clone()
+    let mut s = state.settings.lock().clone();
+    s.groq_api_key = String::new();
+    s
+}
+
+#[tauri::command]
+fn has_api_key(state: State<AppState>) -> bool {
+    !state.settings.lock().groq_api_key.trim().is_empty()
+}
+
+#[tauri::command]
+fn clear_api_key(state: State<AppState>) -> Result<(), String> {
+    let settings = {
+        let mut s = state.settings.lock();
+        s.groq_api_key = String::new();
+        s.clone()
+    };
+    settings.save(&state.app_dir)
 }
 
 #[tauri::command]
 fn save_settings(
     app: AppHandle,
     state: State<AppState>,
-    settings: Settings,
+    mut settings: Settings,
 ) -> Result<(), String> {
+    if settings.groq_api_key.trim().is_empty() {
+        settings.groq_api_key = state.settings.lock().groq_api_key.clone();
+    }
     let recording = settings.hotkey.trim();
     let panel = settings.settings_hotkey.trim();
     let repaste = settings.repaste_hotkey.trim();
@@ -136,7 +156,7 @@ fn save_settings(
     }
 
     if recording_changed {
-        info!("Recording hotkey: {} â†’ {}", old.hotkey, settings.hotkey);
+        info!("Recording hotkey: {} → {}", old.hotkey, settings.hotkey);
         if let Some(tray) = app.tray_by_id(TRAY_ID) {
             if let Err(e) = tray.set_tooltip(Some(tray_tooltip(&settings.hotkey))) {
                 warn!("Could not update tray tooltip: {}", e);
@@ -145,13 +165,13 @@ fn save_settings(
     }
     if panel_changed {
         info!(
-            "Settings hotkey: {} â†’ {}",
+            "Settings hotkey: {} → {}",
             old.settings_hotkey, settings.settings_hotkey
         );
     }
     if repaste_changed {
         info!(
-            "Re-paste hotkey: {:?} â†’ {:?}",
+            "Re-paste hotkey: {:?} → {:?}",
             old.repaste_hotkey, settings.repaste_hotkey
         );
     }
@@ -416,7 +436,7 @@ fn register_repaste_hotkey(handle: &AppHandle, accelerator: &str) -> Result<(), 
                     let Some(latest) = h.latest() else {
                         let _ = handle.emit(
                             "recording-error",
-                            "Nothing to re-paste yet â€” dictate something first.",
+                            "Nothing to re-paste yet — dictate something first.",
                         );
                         return;
                     };
@@ -546,6 +566,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            has_api_key,
+            clear_api_key,
             save_settings,
             list_microphones,
             test_microphone,
@@ -576,7 +598,7 @@ fn main() {
                     }
                 });
             } else {
-                warn!("Settings window not found at setup time â€” close-to-hide not wired");
+                warn!("Settings window not found at setup time — close-to-hide not wired");
             }
 
             if api_key_missing {
@@ -589,7 +611,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        "Recording hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
+                        "Recording hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                         initial_hotkey
                     ),
                 );
@@ -604,7 +626,7 @@ fn main() {
                 let _ = handle.emit(
                     "recording-error",
                     format!(
-                        "Settings hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
+                        "Settings hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                         initial_settings_hotkey
                     ),
                 );
@@ -620,7 +642,7 @@ fn main() {
                     let _ = handle.emit(
                         "recording-error",
                         format!(
-                            "Re-paste hotkey {} couldn't be bound â€” another app may already use it. Pick a different combination in Settings â†’ Hotkey.",
+                            "Re-paste hotkey {} couldn't be bound — another app may already use it. Pick a different combination in Settings → Hotkey.",
                             initial_repaste_hotkey
                         ),
                     );

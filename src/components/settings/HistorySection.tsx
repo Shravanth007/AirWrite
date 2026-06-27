@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { History as HistoryIcon, Clipboard, Check, Trash2 } from "lucide-react";
@@ -179,11 +179,11 @@ function HistoryRow({
             </p>
             <div className="mt-2 flex items-center gap-2 text-[10.5px] text-zinc-600 font-mono">
               <span>{formatAge(entry.timestamp)}</span>
-              <span className="text-zinc-700">Â·</span>
+              <span className="text-zinc-700">·</span>
               <span>
                 {entry.word_count} {entry.word_count === 1 ? "word" : "words"}
               </span>
-              <span className="text-zinc-700">Â·</span>
+              <span className="text-zinc-700">·</span>
               <span>{formatDuration(entry.duration_secs)}</span>
             </div>
           </div>

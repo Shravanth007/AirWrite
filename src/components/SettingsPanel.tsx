@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 
@@ -57,6 +57,7 @@ function matchSearch(query: string): SectionId | null {
 
 export function SettingsPanel() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const [hasKey, setHasKey] = useState(false);
   const [snapshot, setSnapshot] = useState<Settings | null>(null);
   const [mics, setMics] = useState<MicDevice[]>([]);
   const [section, setSection] = useState<SectionId>("api-key");
@@ -71,13 +72,15 @@ export function SettingsPanel() {
     Promise.all([
       invoke<Settings>("get_settings"),
       invoke<MicDevice[]>("list_microphones"),
+      invoke<boolean>("has_api_key"),
     ])
-      .then(([s, m]) => {
+      .then(([s, m, hk]) => {
         if (cancelled) return;
         setSettings(s);
         setSnapshot(s);
         setMics(m);
-        if (s.groqApiKey.trim().length > 0) setSection("audio");
+        setHasKey(hk);
+        if (hk) setSection("audio");
       })
       .catch((e) => {
         if (cancelled) return;
@@ -92,6 +95,12 @@ export function SettingsPanel() {
     const id = matchSearch(query);
     if (id) setSection(id);
   }, [query]);
+
+  async function refreshHasKey() {
+    try {
+      setHasKey(await invoke<boolean>("has_api_key"));
+    } catch {}
+  }
 
   async function refreshMics() {
     try {
@@ -112,6 +121,7 @@ export function SettingsPanel() {
       setSettings(trimmed);
       setSnapshot(trimmed);
       setSavedAt(Date.now());
+      refreshHasKey();
       setTimeout(() => setSavedAt(null), 2200);
     } catch (e) {
       setError(String(e));
@@ -165,7 +175,7 @@ export function SettingsPanel() {
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-[640px] mx-auto px-12 pt-14 pb-10">
             {section === "api-key" && (
-              <ApiKeySection settings={settings} setSettings={setSettings} />
+              <ApiKeySection settings={settings} setSettings={setSettings} hasKey={hasKey} onKeyChanged={refreshHasKey} />
             )}
             {section === "audio" && (
               <AudioSection

@@ -1,4 +1,4 @@
-﻿use log::{error, info, warn};
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, path::PathBuf};
 

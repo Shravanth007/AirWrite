@@ -13,3 +13,8 @@ Thumbs.db
 
 # Local-only audit/notes
 issuestosolve.md
+issues.md
+todo.md
+
+# Claude Code agent worktrees
+.claude/worktrees/

@@ -1,4 +1,4 @@
-﻿pub fn cleanup_text(text: &str) -> String {
+pub fn cleanup_text(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();

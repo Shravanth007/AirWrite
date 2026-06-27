@@ -1,4 +1,4 @@
-﻿use log::{info, warn};
+use log::{info, warn};
 use parking_lot::Mutex;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -68,7 +68,7 @@ impl Recorder {
                     *self.pre_duck_volume.lock() = Some(prior);
                     ducking::save_pending(prior, &self.duck_recovery_path);
                     info!(
-                        "Ducked master volume: {:.0}% â†’ {}%",
+                        "Ducked master volume: {:.0}% → {}%",
                         prior * 100.0,
                         settings.ducking_level
                     );
@@ -147,7 +147,7 @@ impl Recorder {
             match llm_cleanup::cleanup_with_llm(&api_key, &cleaned).await {
                 Ok(polished) => {
                     let secs = llm_started.elapsed().as_secs_f32();
-                    info!("LLM cleanup ({:.2}s): {:?} â†’ {:?}", secs, cleaned, polished);
+                    info!("LLM cleanup ({:.2}s): {:?} → {:?}", secs, cleaned, polished);
                     (polished, Some(secs))
                 }
                 Err(e) => {
@@ -177,7 +177,7 @@ impl Recorder {
         let rtf = if audio_secs > 0.0 { api_secs / audio_secs } else { 0.0 };
         match llm_secs {
             Some(secs) => info!(
-                "Speed: groq={:.2}s rtf={:.2}x Â· llm={:.2}s Â· audio={:.2}s Â· upload={:.0}KB Â· paste={:.2}s Â· total={:.2}s",
+                "Speed: groq={:.2}s rtf={:.2}x · llm={:.2}s · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
                 api_secs,
                 rtf,
                 secs,
@@ -187,7 +187,7 @@ impl Recorder {
                 total_secs,
             ),
             None => info!(
-                "Speed: groq={:.2}s rtf={:.2}x Â· audio={:.2}s Â· upload={:.0}KB Â· paste={:.2}s Â· total={:.2}s",
+                "Speed: groq={:.2}s rtf={:.2}x · audio={:.2}s · upload={:.0}KB · paste={:.2}s · total={:.2}s",
                 api_secs,
                 rtf,
                 audio_secs,

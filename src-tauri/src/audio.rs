@@ -1,4 +1,4 @@
-﻿use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat};
 use hound::{WavSpec, WavWriter};
 use log::{debug, error, info, warn};
@@ -8,6 +8,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Arc;
 
 const SILENCE_PEAK_THRESHOLD: f32 = 0.005;
+// ponytail: hard cap bounds in-memory sample buffer and prevents Groq HTTP 413;
+//           raise MAX_RECORDING_SECS if longer dictations are ever needed.
+const MAX_RECORDING_SECS: u32 = 300;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MicDevice {
@@ -138,7 +141,7 @@ impl AudioRecorder {
         );
 
         if peak < SILENCE_PEAK_THRESHOLD {
-            warn!("Audio peak {:.5} below silence threshold â€” refusing to send.", peak);
+            warn!("Audio peak {:.5} below silence threshold — refusing to send.", peak);
             return Err(format!(
                 "Microphone captured silence (peak {:.4}). \
                  Check Windows mic permissions, mute switch, and that the right input is selected in Settings.",
@@ -236,6 +239,7 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
         device_label, sample_rate, channels, sample_format
     );
 
+    let max_samples = sample_rate as usize * channels as usize * MAX_RECORDING_SECS as usize;
     let config: cpal::StreamConfig = supported.config();
     let samples = Arc::new(Mutex::new(Vec::<f32>::new()));
     let samples_for_cb = samples.clone();
@@ -245,7 +249,14 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
         SampleFormat::F32 => device.build_input_stream(
             &config,
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                samples_for_cb.lock().extend_from_slice(data);
+                let mut buf = samples_for_cb.lock();
+                if buf.len() >= max_samples { return; }
+                let room = max_samples - buf.len();
+                if data.len() <= room {
+                    buf.extend_from_slice(data);
+                } else {
+                    buf.extend(data[..room].iter().copied());
+                }
             },
             err_fn,
             None,
@@ -254,7 +265,9 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
             &config,
             move |data: &[i16], _: &cpal::InputCallbackInfo| {
                 let mut buf = samples_for_cb.lock();
-                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+                if buf.len() >= max_samples { return; }
+                let room = max_samples - buf.len();
+                buf.extend(data.iter().take(room).map(|&s| s.to_sample::<f32>()));
             },
             err_fn,
             None,
@@ -263,7 +276,9 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
             &config,
             move |data: &[u16], _: &cpal::InputCallbackInfo| {
                 let mut buf = samples_for_cb.lock();
-                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+                if buf.len() >= max_samples { return; }
+                let room = max_samples - buf.len();
+                buf.extend(data.iter().take(room).map(|&s| s.to_sample::<f32>()));
             },
             err_fn,
             None,
@@ -272,7 +287,9 @@ fn build_stream(mic_name: &str) -> Result<ActiveStream, String> {
             &config,
             move |data: &[i32], _: &cpal::InputCallbackInfo| {
                 let mut buf = samples_for_cb.lock();
-                buf.extend(data.iter().map(|&s| s.to_sample::<f32>()));
+                if buf.len() >= max_samples { return; }
+                let room = max_samples - buf.len();
+                buf.extend(data.iter().take(room).map(|&s| s.to_sample::<f32>()));
             },
             err_fn,
             None,
@@ -348,13 +365,13 @@ pub fn test_microphone(mic_name: &str, duration_ms: u32) -> Result<MicTestResult
     let verdict = if mono.is_empty() {
         "No samples captured. Stream did not produce data.".to_string()
     } else if peak < 0.001 {
-        "SILENT â€” Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.".to_string()
+        "SILENT — Windows is not letting this app hear the mic. Check 'Let desktop apps access your microphone' in Privacy settings.".to_string()
     } else if peak < SILENCE_PEAK_THRESHOLD {
-        "Very quiet â€” speak louder or check Levels in Windows sound panel.".to_string()
+        "Very quiet — speak louder or check Levels in Windows sound panel.".to_string()
     } else if peak < 0.05 {
         "Audio detected but quiet. Speech may transcribe poorly. Boost mic Level in Windows.".to_string()
     } else {
-        "Healthy signal â€” mic is working.".to_string()
+        "Healthy signal — mic is working.".to_string()
     };
 
     Ok(MicTestResult {

@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Keyboard,
   Mic,
@@ -66,14 +66,14 @@ const KEY_DISPLAY: Record<string, string> = {
   BracketLeft: "[",
   BracketRight: "]",
   Backslash: "\\",
-  Up: "â†‘",
-  Down: "â†“",
-  Left: "â†",
-  Right: "â†’",
+  Up: "↑",
+  Down: "↓",
+  Left: "←",
+  Right: "→",
   Space: "Space",
-  Enter: "â†µ",
+  Enter: "↵",
   Tab: "Tab",
-  Backspace: "âŒ«",
+  Backspace: "⌫",
   Delete: "Del",
   Insert: "Ins",
   Home: "Home",
@@ -81,11 +81,11 @@ const KEY_DISPLAY: Record<string, string> = {
   PageUp: "PgUp",
   PageDown: "PgDn",
   NumpadAdd: "Num +",
-  NumpadSubtract: "Num âˆ’",
-  NumpadMultiply: "Num Ã—",
-  NumpadDivide: "Num Ã·",
+  NumpadSubtract: "Num −",
+  NumpadMultiply: "Num ×",
+  NumpadDivide: "Num ÷",
   NumpadDecimal: "Num .",
-  NumpadEnter: "Num â†µ",
+  NumpadEnter: "Num ↵",
 };
 const displayKey = (k: string) => {
   if (k in KEY_DISPLAY) return KEY_DISPLAY[k];
@@ -162,7 +162,7 @@ function BindingRow({
                 <span className="relative w-2 h-2 rounded-full bg-white" />
               </span>
               <span className="text-[12.5px] text-zinc-200">
-                Press your combinationâ€¦ Esc to cancel
+                Press your combination… Esc to cancel
               </span>
             </div>
           ) : empty ? (
@@ -245,7 +245,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
       <PageHero
         eyebrow="Triggers"
         title="Hotkeys"
-        description="System-wide key combinations that work from any app. Save to apply changes â€” no restart needed."
+        description="System-wide key combinations that work from any app. Save to apply changes — no restart needed."
         Icon={Keyboard}
       />
 
@@ -275,7 +275,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
             <BindingRow
               Icon={Clipboard}
               label="Re-paste last"
-              hint="Re-pastes your most recent dictation into the focused window. Optional â€” leave unassigned to disable."
+              hint="Re-pastes your most recent dictation into the focused window. Optional — leave unassigned to disable."
               combo={settings.repasteHotkey}
               capturing={capturing === "repaste"}
               onClick={() =>
@@ -289,7 +289,7 @@ export function HotkeySection({ settings, setSettings }: Props) {
 
         {conflictPair && (
           <p className="mt-4 text-[11.5px] text-amber-400">
-            {conflictPair[2]} hotkeys are bound to the same combination â€” assign
+            {conflictPair[2]} hotkeys are bound to the same combination — assign
             different keys.
           </p>
         )}
