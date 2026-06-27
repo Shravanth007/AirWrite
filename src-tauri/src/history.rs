@@ -95,10 +95,6 @@ impl History {
         self.entries.first()
     }
 
-    pub fn get(&self, index: usize) -> Option<&HistoryEntry> {
-        self.entries.get(index)
-    }
-
     pub fn clear(&mut self) {
         self.entries.clear();
     }
