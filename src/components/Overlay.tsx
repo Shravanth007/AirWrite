@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Check, AlertTriangle, Loader2 } from "lucide-react";
+import { Check, AlertTriangle, Loader2, Mic, MicOff } from "lucide-react";
 
-type RecordingState = "recording" | "transcribing" | "done" | "error";
+type RecordingState =
+  | "recording"
+  | "transcribing"
+  | "done"
+  | "error"
+  | "muted"
+  | "unmuted";
 
 const WAVE_DELAYS = [0, 90, 180, 90, 0];
 
@@ -47,6 +53,12 @@ export function Overlay() {
         setState("error");
         setErrorMsg(typeof e.payload === "string" ? e.payload : "Unknown error");
         reset(5000);
+      }),
+      listen<boolean>("mic-mute", (e) => {
+        if (clearTimer) clearTimeout(clearTimer);
+        setState(e.payload ? "muted" : "unmuted");
+        setErrorMsg("");
+        reset(1500);
       }),
     ];
 
@@ -110,6 +122,24 @@ function Pill({
         <span className="text-[11.5px] font-medium text-emerald-300">
           Pasted
         </span>
+      </div>
+    );
+  }
+
+  if (state === "muted") {
+    return (
+      <div className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-black border border-red-500/40 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.7),0_0_0_3px_rgba(239,68,68,0.08)] animate-overlay-in select-none">
+        <MicOff className="w-3 h-3 text-red-400" strokeWidth={2.5} />
+        <span className="text-[11.5px] font-medium text-red-200">Mic muted</span>
+      </div>
+    );
+  }
+
+  if (state === "unmuted") {
+    return (
+      <div className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-black border border-emerald-500/30 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.7),0_0_0_3px_rgba(16,185,129,0.08)] animate-overlay-in select-none">
+        <Mic className="w-3 h-3 text-emerald-400" strokeWidth={2.5} />
+        <span className="text-[11.5px] font-medium text-emerald-300">Mic on</span>
       </div>
     );
   }
