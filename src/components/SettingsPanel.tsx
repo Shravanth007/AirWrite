@@ -39,6 +39,8 @@ const SEARCH_INDEX: Record<SectionId, string[]> = {
     "polish",
     "clipboard",
     "restore",
+    "language",
+    "spoken",
   ],
   history: ["history", "recent", "log", "transcriptions", "past", "previous"],
   about: ["about", "info", "version", "credits", "model", "whisper"],
@@ -166,6 +168,7 @@ export function SettingsPanel() {
           setQuery("");
         }}
         settings={settings}
+        hasKey={hasKey}
         query={query}
         setQuery={setQuery}
       />
@@ -194,7 +197,9 @@ export function SettingsPanel() {
                 setSettings={setSettings}
               />
             )}
-            {section === "history" && <HistorySection />}
+            {section === "history" && (
+              <HistorySection settings={settings} setSettings={setSettings} />
+            )}
             {section === "about" && <AboutSection />}
             <div className="h-16" />
           </div>

@@ -108,22 +108,28 @@ impl Recorder {
         *self.state.lock() = RecordingState::Ready;
 
         match &result {
-            Ok(text) => {
+            Ok((text, truncated)) => {
                 info!("Transcription: {:?}", text);
                 let _ = app.emit("recording-state", "done");
+                if *truncated {
+                    let _ = app.emit(
+                        "recording-warning",
+                        "Recording hit the 5-minute limit — only the first 5 minutes were transcribed.",
+                    );
+                }
             }
             Err(e) => {
                 let _ = app.emit("recording-error", e);
             }
         }
-        result
+        result.map(|(text, _)| text)
     }
 
     async fn do_transcribe(
         &self,
         settings: &Settings,
         app: &AppHandle,
-    ) -> Result<String, String> {
+    ) -> Result<(String, bool), String> {
         let temp = tempfile::Builder::new()
             .prefix("airwrite-")
             .suffix(".wav")
@@ -132,12 +138,14 @@ impl Recorder {
         let temp_path = temp.path().to_path_buf();
 
         let pipeline_started = Instant::now();
-        let audio_secs = self.audio_recorder.lock().stop_and_save(&temp_path)?;
+        let (audio_secs, truncated) = self.audio_recorder.lock().stop_and_save(&temp_path)?;
         let upload_size = std::fs::metadata(&temp_path).map(|m| m.len()).unwrap_or(0);
 
         let api_key = settings.groq_api_key.trim().to_string();
         let api_started = Instant::now();
-        let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
+        let raw_text =
+            transcribe_groq::transcribe_groq(&api_key, &temp_path, &settings.transcription_language)
+                .await?;
         let api_secs = api_started.elapsed().as_secs_f32();
 
         let cleaned = cleanup_text(&raw_text);
@@ -166,7 +174,7 @@ impl Recorder {
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
 
-        if !final_text.is_empty() {
+        if settings.history_enabled && !final_text.is_empty() {
             let mut h = self.history.lock();
             h.push(&final_text, audio_secs);
             h.save(&self.app_dir);
@@ -197,6 +205,6 @@ impl Recorder {
             ),
         }
 
-        Ok(final_text)
+        Ok((final_text, truncated))
     }
 }

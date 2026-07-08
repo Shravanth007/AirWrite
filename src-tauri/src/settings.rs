@@ -26,6 +26,10 @@ pub struct Settings {
     pub clipboard_restore: bool,
     #[serde(rename = "repasteHotkey")]
     pub repaste_hotkey: String,
+    #[serde(rename = "transcriptionLanguage")]
+    pub transcription_language: String,
+    #[serde(rename = "historyEnabled")]
+    pub history_enabled: bool,
 }
 
 impl Default for Settings {
@@ -41,6 +45,8 @@ impl Default for Settings {
             ai_cleanup_enabled: false,
             clipboard_restore: true,
             repaste_hotkey: String::new(),
+            transcription_language: "en".to_string(),
+            history_enabled: true,
         }
     }
 }

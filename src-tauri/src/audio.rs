@@ -115,7 +115,10 @@ impl AudioRecorder {
             .map_err(|_| "Audio worker dropped reply".to_string())?
     }
 
-    pub fn stop_and_save(&mut self, output_path: &Path) -> Result<f32, String> {
+    /// Saves the recording to `output_path` and returns its duration in
+    /// seconds plus whether the capture hit the `MAX_RECORDING_SECS` cap
+    /// (i.e. audio was silently dropped and the user should be told).
+    pub fn stop_and_save(&mut self, output_path: &Path) -> Result<(f32, bool), String> {
         let drained = self.stop_and_drain()?;
 
         if drained.samples.is_empty() {
@@ -123,6 +126,10 @@ impl AudioRecorder {
                 "No audio captured. Check that your microphone is enabled and not muted.".into(),
             );
         }
+
+        let cap_samples =
+            drained.sample_rate as usize * drained.channels as usize * MAX_RECORDING_SECS as usize;
+        let truncated = drained.samples.len() >= cap_samples;
 
         let mono = downmix_mono(&drained.samples, drained.channels);
         let duration_secs = mono.len() as f32 / drained.sample_rate as f32;
@@ -167,7 +174,13 @@ impl AudioRecorder {
         writer.finalize().map_err(|e| e.to_string())?;
 
         debug!("WAV saved to {}", output_path.display());
-        Ok(duration_secs)
+        if truncated {
+            warn!(
+                "Recording hit the {}s cap — later audio was dropped.",
+                MAX_RECORDING_SECS
+            );
+        }
+        Ok((duration_secs, truncated))
     }
 }
 

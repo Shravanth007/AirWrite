@@ -1,6 +1,24 @@
-import { Repeat, Hand, Sparkles, Wand2, Clipboard } from "lucide-react";
+import { Repeat, Hand, Sparkles, Wand2, Clipboard, Languages } from "lucide-react";
 import type { Settings, RecordingMode } from "./types";
-import { Block, Field, PageHero, Pill } from "./primitives";
+import { Block, Field, PageHero, Pill, Select } from "./primitives";
+
+// Common Groq Whisper languages. "auto" omits the language hint entirely.
+const LANGUAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: "auto", label: "Auto-detect" },
+  { value: "en", label: "English" },
+  { value: "es", label: "Spanish" },
+  { value: "fr", label: "French" },
+  { value: "de", label: "German" },
+  { value: "it", label: "Italian" },
+  { value: "pt", label: "Portuguese" },
+  { value: "nl", label: "Dutch" },
+  { value: "hi", label: "Hindi" },
+  { value: "ja", label: "Japanese" },
+  { value: "ko", label: "Korean" },
+  { value: "zh", label: "Chinese" },
+  { value: "ru", label: "Russian" },
+  { value: "ar", label: "Arabic" },
+];
 
 interface Props {
   settings: Settings;
@@ -97,6 +115,24 @@ export function RecordingSection({ settings, setSettings }: Props) {
           })}
         </div>
       </div>
+
+      <Block className="mt-8">
+        <Field
+          label="Spoken language"
+          hint="The language you dictate in. Auto-detect lets Groq Whisper figure it out per recording; pick a specific language for the best accuracy."
+          trailing={
+            <Languages className="w-3.5 h-3.5 text-zinc-500" strokeWidth={2} />
+          }
+        >
+          <Select
+            value={settings.transcriptionLanguage || "en"}
+            onChange={(v) =>
+              setSettings({ ...settings, transcriptionLanguage: v })
+            }
+            options={LANGUAGE_OPTIONS}
+          />
+        </Field>
+      </Block>
 
       <Block className="mt-8">
         <Field label="Post-processing">
