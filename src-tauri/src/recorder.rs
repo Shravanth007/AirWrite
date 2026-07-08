@@ -174,7 +174,7 @@ impl Recorder {
         let paste_secs = paste_started.elapsed().as_secs_f32();
         let total_secs = pipeline_started.elapsed().as_secs_f32();
 
-        if !final_text.is_empty() {
+        if settings.history_enabled && !final_text.is_empty() {
             let mut h = self.history.lock();
             h.push(&final_text, audio_secs);
             h.save(&self.app_dir);

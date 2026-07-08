@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { History as HistoryIcon, Clipboard, Check, Trash2 } from "lucide-react";
-import type { HistoryEntry } from "./types";
+import { History as HistoryIcon, Clipboard, Check, Trash2, Save } from "lucide-react";
+import type { HistoryEntry, Settings } from "./types";
 import { Block, Button, PageHero } from "./primitives";
+
+interface Props {
+  settings: Settings;
+  setSettings: (s: Settings) => void;
+}
 
 const RELATIVE = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
@@ -31,7 +36,7 @@ function formatDuration(secs: number): string {
   return `${m}m ${s}s`;
 }
 
-export function HistorySection() {
+export function HistorySection({ settings, setSettings }: Props) {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
@@ -91,11 +96,35 @@ export function HistorySection() {
         Icon={HistoryIcon}
       />
 
+      <Block>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg border border-white/[0.08] flex items-center justify-center shrink-0">
+              <Save className="w-4 h-4 text-zinc-400" strokeWidth={2} />
+            </div>
+            <div>
+              <p className="text-[13px] font-medium text-white">Save history</p>
+              <p className="text-[11px] text-zinc-500 max-w-[380px] leading-relaxed">
+                Dictations are stored in plain text on this machine. Turn this
+                off to stop recording new entries; use Clear to remove existing
+                ones.
+              </p>
+            </div>
+          </div>
+          <Toggle
+            checked={settings.historyEnabled}
+            onChange={(v) =>
+              setSettings({ ...settings, historyEnabled: v })
+            }
+          />
+        </div>
+      </Block>
+
       {loadError && (
-        <p className="text-[12px] text-red-400 mb-4">{loadError}</p>
+        <p className="text-[12px] text-red-400 mt-4 mb-4">{loadError}</p>
       )}
 
-      <Block>
+      <Block className="mt-8">
         <div className="flex items-center justify-between mb-4">
           <span className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
             {entries.length === 0
@@ -153,6 +182,34 @@ export function HistorySection() {
         )}
       </Block>
     </div>
+  );
+}
+
+function Toggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors border ${
+        checked
+          ? "bg-white border-white"
+          : "bg-transparent border-white/20 hover:border-white/30"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 w-3.5 h-3.5 rounded-full transition-all ${
+          checked ? "left-[18px] bg-black" : "left-0.5 bg-white/40"
+        }`}
+      />
+    </button>
   );
 }
 

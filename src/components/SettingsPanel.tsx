@@ -197,7 +197,9 @@ export function SettingsPanel() {
                 setSettings={setSettings}
               />
             )}
-            {section === "history" && <HistorySection />}
+            {section === "history" && (
+              <HistorySection settings={settings} setSettings={setSettings} />
+            )}
             {section === "about" && <AboutSection />}
             <div className="h-16" />
           </div>
