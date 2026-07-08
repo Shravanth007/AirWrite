@@ -7,6 +7,7 @@ type RecordingState =
   | "transcribing"
   | "done"
   | "error"
+  | "warning"
   | "muted"
   | "unmuted";
 
@@ -53,6 +54,12 @@ export function Overlay() {
         setState("error");
         setErrorMsg(typeof e.payload === "string" ? e.payload : "Unknown error");
         reset(5000);
+      }),
+      listen<string>("recording-warning", (e) => {
+        if (clearTimer) clearTimeout(clearTimer);
+        setState("warning");
+        setErrorMsg(typeof e.payload === "string" ? e.payload : "");
+        reset(6000);
       }),
       listen<boolean>("mic-mute", (e) => {
         if (clearTimer) clearTimeout(clearTimer);
@@ -140,6 +147,23 @@ function Pill({
       <div className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-black border border-emerald-500/30 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.7),0_0_0_3px_rgba(16,185,129,0.08)] animate-overlay-in select-none">
         <Mic className="w-3 h-3 text-emerald-400" strokeWidth={2.5} />
         <span className="text-[11.5px] font-medium text-emerald-300">Mic on</span>
+      </div>
+    );
+  }
+
+  if (state === "warning") {
+    return (
+      <div
+        className="inline-flex items-center gap-2 h-9 max-w-full px-3.5 rounded-full bg-black border border-amber-500/40 shadow-[0_8px_24px_-6px_rgba(0,0,0,0.7),0_0_0_3px_rgba(245,158,11,0.08)] animate-overlay-in select-text overflow-hidden"
+        title={errorMsg}
+      >
+        <AlertTriangle
+          className="w-3 h-3 text-amber-400 shrink-0"
+          strokeWidth={2.5}
+        />
+        <span className="text-[11px] text-amber-200 truncate">
+          {errorMsg || "Recording limit reached"}
+        </span>
       </div>
     );
   }
