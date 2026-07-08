@@ -10,7 +10,11 @@ const MODEL: &str = "whisper-large-v3-turbo";
 const MAX_ATTEMPTS: u32 = 2;
 const RETRY_BACKOFF_MS: u64 = 500;
 
-pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String, String> {
+pub async fn transcribe_groq(
+    api_key: &str,
+    audio_path: &Path,
+    language: &str,
+) -> Result<String, String> {
     if api_key.is_empty() {
         return Err("Groq API key not set. Open Settings to enter your key.".to_string());
     }
@@ -33,11 +37,14 @@ pub async fn transcribe_groq(api_key: &str, audio_path: &Path) -> Result<String,
             .mime_str("audio/wav")
             .map_err(|e| format!("Multipart build failed: {}", e))?;
 
-        let form = multipart::Form::new()
+        let mut form = multipart::Form::new()
             .text("model", MODEL)
-            .text("language", "en")
-            .text("response_format", "json")
-            .part("file", file_part);
+            .text("response_format", "json");
+        // "auto" (or empty) omits the language field so Groq Whisper detects it.
+        if !language.is_empty() && language != "auto" {
+            form = form.text("language", language.to_string());
+        }
+        let form = form.part("file", file_part);
 
         let send_result = client
             .post(GROQ_ENDPOINT)
@@ -150,21 +157,21 @@ mod tests {
     #[tokio::test]
     async fn empty_key_is_rejected() {
         let path = PathBuf::from("nonexistent.wav");
-        let err = transcribe_groq("", &path).await.unwrap_err();
+        let err = transcribe_groq("", &path, "en").await.unwrap_err();
         assert!(err.contains("API key not set"));
     }
 
     #[tokio::test]
     async fn whitespace_in_key_is_rejected() {
         let path = PathBuf::from("nonexistent.wav");
-        let err = transcribe_groq("gsk_with space", &path).await.unwrap_err();
+        let err = transcribe_groq("gsk_with space", &path, "en").await.unwrap_err();
         assert!(err.contains("whitespace"));
     }
 
     #[tokio::test]
     async fn newline_in_key_is_rejected() {
         let path = PathBuf::from("nonexistent.wav");
-        let err = transcribe_groq("gsk_abc\ndef", &path).await.unwrap_err();
+        let err = transcribe_groq("gsk_abc\ndef", &path, "en").await.unwrap_err();
         assert!(err.contains("whitespace") || err.contains("control"));
     }
 }

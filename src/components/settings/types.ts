@@ -11,6 +11,7 @@ export interface Settings {
   aiCleanupEnabled: boolean;
   clipboardRestore: boolean;
   repasteHotkey: string;
+  transcriptionLanguage: string;
 }
 
 export interface MicDevice {

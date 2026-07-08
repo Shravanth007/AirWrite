@@ -39,6 +39,8 @@ const SEARCH_INDEX: Record<SectionId, string[]> = {
     "polish",
     "clipboard",
     "restore",
+    "language",
+    "spoken",
   ],
   history: ["history", "recent", "log", "transcriptions", "past", "previous"],
   about: ["about", "info", "version", "credits", "model", "whisper"],

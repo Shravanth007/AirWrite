@@ -143,7 +143,9 @@ impl Recorder {
 
         let api_key = settings.groq_api_key.trim().to_string();
         let api_started = Instant::now();
-        let raw_text = transcribe_groq::transcribe_groq(&api_key, &temp_path).await?;
+        let raw_text =
+            transcribe_groq::transcribe_groq(&api_key, &temp_path, &settings.transcription_language)
+                .await?;
         let api_secs = api_started.elapsed().as_secs_f32();
 
         let cleaned = cleanup_text(&raw_text);
