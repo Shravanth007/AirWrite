@@ -33,6 +33,7 @@ interface Props {
   current: SectionId;
   onSelect: (id: SectionId) => void;
   settings: Settings;
+  hasKey: boolean;
   query: string;
   setQuery: (v: string) => void;
 }
@@ -41,10 +42,13 @@ export function Sidebar({
   current,
   onSelect,
   settings,
+  hasKey,
   query,
   setQuery,
 }: Props) {
-  const apiKeyOk = settings.groqApiKey.trim().length > 0;
+  // The backend blanks groqApiKey in get_settings, so rely on the has_api_key
+  // boolean; also treat a freshly typed (unsaved) key as configured.
+  const apiKeyOk = hasKey || settings.groqApiKey.trim().length > 0;
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {

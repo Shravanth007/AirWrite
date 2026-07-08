@@ -166,6 +166,7 @@ export function SettingsPanel() {
           setQuery("");
         }}
         settings={settings}
+        hasKey={hasKey}
         query={query}
         setQuery={setQuery}
       />
